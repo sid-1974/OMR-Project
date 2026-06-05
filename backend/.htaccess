@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Adjust RewriteBase if needed, here it matches the directory structure
+RewriteBase /omr/backend/
+
+# Check if requested file doesn't exist
+RewriteCond %{REQUEST_FILENAME} !-f
+# Check if requested directory doesn't exist
+RewriteCond %{REQUEST_FILENAME} !-d
+# Check if the file with a .php extension exists
+RewriteCond %{REQUEST_FILENAME}.php -f
+# Rewrite the request to append the .php extension
+RewriteRule ^(.*)$ $1.php [L,QSA]

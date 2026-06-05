@@ -1,0 +1,311 @@
+import React, { useState, useEffect } from 'react';
+import { Save, Info, Key, AlertCircle } from 'lucide-react';
+import { api } from '../api/api';
+
+const OMRAnswerKeyConsole = () => {
+
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  
+  const [keysList, setKeysList] = useState([]); // Array of { question_number, correct_option }
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = async () => {
+    try {
+      const data = await api.getTemplates();
+      if (data.success) {
+        setTemplates(data.templates);
+        if (data.templates.length > 0) {
+          setSelectedTemplateId(data.templates[0].id.toString());
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTemplateId) return;
+    fetchTemplateDetails(selectedTemplateId);
+  }, [selectedTemplateId]);
+
+  const fetchTemplateDetails = async (id) => {
+    setLoading(true);
+    try {
+      const data = await api.getTemplates(id);
+      if (data.success) {
+        setSelectedTemplate(data.template);
+        
+        // Prepare initial keys list
+        let qConfig = data.template.questions_config;
+        if (typeof qConfig === 'string') qConfig = JSON.parse(qConfig);
+        
+        const keysMap = {};
+        qConfig.forEach(block => {
+          const start = parseInt(block.startQ, 10) || 1;
+          const count = parseInt(block.qCount, 10) || 0;
+          const end = start + count - 1;
+          for (let q = start; q <= end; q++) {
+            keysMap[q] = {
+              question_number: q,
+              correct_option: '', // start empty
+              options: block.options || ['A', 'B', 'C', 'D']
+            };
+          }
+        });
+        
+        const initialKeys = Object.values(keysMap).sort((a, b) => a.question_number - b.question_number);
+        
+        // Overwrite with existing saved keys if present
+        if (data.template.answer_key && data.template.answer_key.length > 0) {
+          const savedKeysMap = {};
+          data.template.answer_key.forEach(k => {
+            savedKeysMap[parseInt(k.question_number, 10)] = k.correct_option;
+          });
+          
+          initialKeys.forEach(k => {
+            if (savedKeysMap[k.question_number] !== undefined) {
+              k.correct_option = savedKeysMap[k.question_number];
+            }
+          });
+        }
+        
+        setKeysList(initialKeys);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOptionSelect = (qNum, option) => {
+    setKeysList(prev => prev.map(k => k.question_number === qNum ? { ...k, correct_option: option } : k));
+  };
+
+  const handleClearAllKeys = () => {
+    if (confirm("Are you sure you want to clear all answer key selections in the grid?")) {
+      setKeysList(prev => prev.map(k => ({ ...k, correct_option: '' })));
+    }
+  };
+
+  // Save correct keys to PHP backend
+  const handleSaveKeys = async () => {
+    const unfilledCount = keysList.filter(k => !k.correct_option).length;
+    if (unfilledCount > 0) {
+      if (!confirm(`Warning: You have ${unfilledCount} questions without a correct answer key selected. Continue saving?`)) {
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const data = await api.saveAnswerKey({
+        template_id: parseInt(selectedTemplateId),
+        answers: keysList.filter(k => k.correct_option !== '')
+      });
+
+      if (data.success) {
+        alert('Answer keys saved successfully!');
+        fetchTemplateDetails(selectedTemplateId);
+      } else {
+        setError(data.message || 'Failed to save answer key.');
+      }
+    } catch (err) {
+      setError('Network error saving keys.');
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      
+      {/* Configuration Header Card */}
+      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div style={{ 
+              background: 'var(--accent-glow)', 
+              border: '1px solid rgba(99, 102, 241, 0.2)', 
+              padding: '0.75rem', 
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Key size={28} style={{ color: 'var(--accent-secondary)' }} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.025em' }}>Answer Key Configurator</h2>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                Configure correct answers for your OMR templates manually.
+              </p>
+            </div>
+          </div>
+
+          {selectedTemplate && (
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleClearAllKeys}
+                disabled={saving || loading || keysList.filter(k => k.correct_option !== '').length === 0}
+              >
+                Clear All
+              </button>
+              <button 
+                className="btn btn-success" 
+                onClick={handleSaveKeys}
+                disabled={saving || loading}
+              >
+                <Save size={18} /> {saving ? 'Saving...' : 'Save Answer Key'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" style={{ fontWeight: 600 }}>Select OMR Template</label>
+            <select 
+              className="form-input" 
+              value={selectedTemplateId} 
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+            >
+              <option value="">-- Choose Template --</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedTemplate && (
+            <div style={{ 
+              background: 'rgba(255, 255, 255, 0.02)', 
+              border: '1px solid var(--border-color)', 
+              padding: '1rem', 
+              borderRadius: '8px', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              justifyContent: 'center',
+              gap: '0.25rem'
+            }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Template Status Summary</span>
+              <span style={{ fontSize: '1rem', fontWeight: 700 }}>
+                Total Questions: <span style={{ color: 'var(--accent-secondary)' }}>{keysList.length}</span> | 
+                Configured: <span style={{ color: 'var(--success)' }}>{keysList.filter(k => k.correct_option !== '').length}</span>
+              </span>
+            </div>
+          )}
+        </div>
+
+        {selectedTemplate && error && (
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', color: 'var(--danger)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Grid view of correct answers */}
+      {selectedTemplate && (
+        <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Info size={18} style={{ color: 'var(--accent-primary)' }} /> Correct Answer Sheet Grid
+            </h3>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Click options directly in the grid to assign correct keys.
+            </span>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1.25rem' }}>
+            {keysList.map(k => (
+              <div 
+                key={k.question_number} 
+                style={{ 
+                  background: k.correct_option ? 'rgba(99, 102, 241, 0.03)' : 'var(--bg-secondary)', 
+                  border: k.correct_option ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid var(--border-color)', 
+                  padding: '1rem', 
+                  borderRadius: '10px', 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: '0.75rem',
+                  alignItems: 'center',
+                  transition: 'var(--transition)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: k.correct_option ? 'var(--accent-secondary)' : 'var(--text-secondary)' }}>
+                    Q{k.question_number}
+                  </span>
+                  {k.correct_option && (
+                    <button 
+                      onClick={() => handleOptionSelect(k.question_number, '')}
+                      style={{
+                        background: 'transparent',
+                        border: 0,
+                        color: 'var(--text-muted)',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        padding: '2px 4px',
+                        borderRadius: '4px'
+                      }}
+                      onMouseOver={(e) => e.currentTarget.style.color = 'var(--danger)'}
+                      onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {(k.options || ['A', 'B', 'C', 'D']).map(opt => {
+                    const isSelected = k.correct_option === opt;
+                    return (
+                      <button
+                        key={opt}
+                        onClick={() => handleOptionSelect(k.question_number, opt)}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          border: isSelected ? '2px solid var(--success)' : '1px solid var(--border-color)',
+                          background: isSelected ? 'var(--success-glow)' : 'transparent',
+                          color: isSelected ? 'var(--success)' : 'var(--text-secondary)',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'var(--transition)'
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default OMRAnswerKeyConsole;
