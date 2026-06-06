@@ -50,13 +50,13 @@ try {
  */
 function createOMRTablesIfNotExist($pdo)
 {
-    // Migration: remove AUTO_INCREMENT from omr_templates.id if present
+    // Migration: ensure AUTO_INCREMENT is present on omr_templates.id
     try {
         $stmt = $pdo->query("SHOW COLUMNS FROM `omr_templates` LIKE 'id'");
         $col = $stmt->fetch();
-        if ($col && strpos($col['Extra'], 'auto_increment') !== false) {
+        if ($col && strpos($col['Extra'], 'auto_increment') === false) {
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
-            $pdo->exec("ALTER TABLE `omr_templates` MODIFY COLUMN `id` INT NOT NULL");
+            $pdo->exec("ALTER TABLE `omr_templates` MODIFY COLUMN `id` INT AUTO_INCREMENT");
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
         }
     } catch (\PDOException $e) {
@@ -76,7 +76,7 @@ function createOMRTablesIfNotExist($pdo)
     // OMR Templates
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `omr_templates` (
-          `id` INT PRIMARY KEY,
+          `id` INT AUTO_INCREMENT PRIMARY KEY,
           `name` VARCHAR(100) NOT NULL,
           `blank_image_path` VARCHAR(255) NOT NULL,
           `width` INT NOT NULL,

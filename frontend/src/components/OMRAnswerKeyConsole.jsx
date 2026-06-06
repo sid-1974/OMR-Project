@@ -7,12 +7,13 @@ const OMRAnswerKeyConsole = () => {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState(null);
-  
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  
+
   const [keysList, setKeysList] = useState([]); // Array of { question_number, correct_option }
+  const [selectedQNum, setSelectedQNum] = useState(null);
 
   useEffect(() => {
     fetchTemplates();
@@ -33,7 +34,12 @@ const OMRAnswerKeyConsole = () => {
   };
 
   useEffect(() => {
-    if (!selectedTemplateId) return;
+    if (!selectedTemplateId) {
+      setSelectedTemplate(null);
+      setKeysList([]);
+      setSelectedQNum(null);
+      return;
+    }
     fetchTemplateDetails(selectedTemplateId);
   }, [selectedTemplateId]);
 
@@ -43,11 +49,11 @@ const OMRAnswerKeyConsole = () => {
       const data = await api.getTemplates(id);
       if (data.success) {
         setSelectedTemplate(data.template);
-        
+
         // Prepare initial keys list
         let qConfig = data.template.questions_config;
         if (typeof qConfig === 'string') qConfig = JSON.parse(qConfig);
-        
+
         const keysMap = {};
         qConfig.forEach(block => {
           const start = parseInt(block.startQ, 10) || 1;
@@ -61,24 +67,27 @@ const OMRAnswerKeyConsole = () => {
             };
           }
         });
-        
+
         const initialKeys = Object.values(keysMap).sort((a, b) => a.question_number - b.question_number);
-        
+
         // Overwrite with existing saved keys if present
         if (data.template.answer_key && data.template.answer_key.length > 0) {
           const savedKeysMap = {};
           data.template.answer_key.forEach(k => {
             savedKeysMap[parseInt(k.question_number, 10)] = k.correct_option;
           });
-          
+
           initialKeys.forEach(k => {
             if (savedKeysMap[k.question_number] !== undefined) {
               k.correct_option = savedKeysMap[k.question_number];
             }
           });
         }
-        
+
         setKeysList(initialKeys);
+        if (initialKeys.length > 0) {
+          setSelectedQNum(1);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -86,6 +95,69 @@ const OMRAnswerKeyConsole = () => {
       setLoading(false);
     }
   };
+
+  // Keyboard navigation & entry listener
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't intercept if typing in inputs or textareas or selects
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT') {
+        return;
+      }
+
+      if (!selectedTemplate || keysList.length === 0 || !selectedQNum) return;
+
+      const key = e.key.toUpperCase();
+      const currentIndex = keysList.findIndex(k => k.question_number === selectedQNum);
+      if (currentIndex === -1) return;
+
+      const currentQ = keysList[currentIndex];
+      const availableOptions = currentQ.options || ['A', 'B', 'C', 'D'];
+
+      if (availableOptions.includes(key)) {
+        handleOptionSelect(selectedQNum, key);
+        // Auto-advance
+        if (currentIndex < keysList.length - 1) {
+          setSelectedQNum(keysList[currentIndex + 1].question_number);
+        }
+        e.preventDefault();
+      } else if (e.key === 'Backspace') {
+        handleOptionSelect(selectedQNum, '');
+        // Go back
+        if (currentIndex > 0) {
+          setSelectedQNum(keysList[currentIndex - 1].question_number);
+        }
+        e.preventDefault();
+      } else if (e.key === 'Delete') {
+        handleOptionSelect(selectedQNum, '');
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        if (currentIndex < keysList.length - 1) {
+          setSelectedQNum(keysList[currentIndex + 1].question_number);
+        }
+        e.preventDefault();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        if (currentIndex > 0) {
+          setSelectedQNum(keysList[currentIndex - 1].question_number);
+        }
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedQNum, keysList, selectedTemplate]);
+
+  // Autoscroll selected question into view
+  useEffect(() => {
+    if (selectedQNum) {
+      const el = document.getElementById(`qcard-${selectedQNum}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [selectedQNum]);
 
   const handleOptionSelect = (qNum, option) => {
     setKeysList(prev => prev.map(k => k.question_number === qNum ? { ...k, correct_option: option } : k));
@@ -131,15 +203,15 @@ const OMRAnswerKeyConsole = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-      
+
       {/* Configuration Header Card */}
       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <div style={{ 
-              background: 'var(--accent-glow)', 
-              border: '1px solid rgba(99, 102, 241, 0.2)', 
-              padding: '0.75rem', 
+            <div style={{
+              background: 'var(--accent-glow)',
+              border: '1px solid rgba(99, 102, 241, 0.2)',
+              padding: '0.75rem',
               borderRadius: '12px',
               display: 'flex',
               alignItems: 'center',
@@ -157,15 +229,15 @@ const OMRAnswerKeyConsole = () => {
 
           {selectedTemplate && (
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              <button 
-                className="btn btn-secondary" 
+              <button
+                className="btn btn-secondary"
                 onClick={handleClearAllKeys}
                 disabled={saving || loading || keysList.filter(k => k.correct_option !== '').length === 0}
               >
                 Clear All
               </button>
-              <button 
-                className="btn btn-success" 
+              <button
+                className="btn btn-success"
                 onClick={handleSaveKeys}
                 disabled={saving || loading}
               >
@@ -178,9 +250,9 @@ const OMRAnswerKeyConsole = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" style={{ fontWeight: 600 }}>Select OMR Template</label>
-            <select 
-              className="form-input" 
-              value={selectedTemplateId} 
+            <select
+              className="form-input"
+              value={selectedTemplateId}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
             >
               <option value="">-- Choose Template --</option>
@@ -191,19 +263,19 @@ const OMRAnswerKeyConsole = () => {
           </div>
 
           {selectedTemplate && (
-            <div style={{ 
-              background: 'rgba(255, 255, 255, 0.02)', 
-              border: '1px solid var(--border-color)', 
-              padding: '1rem', 
-              borderRadius: '8px', 
-              display: 'flex', 
-              flexDirection: 'column', 
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: '1px solid var(--border-color)',
+              padding: '1rem',
+              borderRadius: '8px',
+              display: 'flex',
+              flexDirection: 'column',
               justifyContent: 'center',
               gap: '0.25rem'
             }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Template Status Summary</span>
               <span style={{ fontSize: '1rem', fontWeight: 700 }}>
-                Total Questions: <span style={{ color: 'var(--accent-secondary)' }}>{keysList.length}</span> | 
+                Total Questions: <span style={{ color: 'var(--accent-secondary)' }}>{keysList.length}</span> |
                 Configured: <span style={{ color: 'var(--success)' }}>{keysList.filter(k => k.correct_option !== '').length}</span>
               </span>
             </div>
@@ -226,80 +298,95 @@ const OMRAnswerKeyConsole = () => {
               <Info size={18} style={{ color: 'var(--accent-primary)' }} /> Correct Answer Sheet Grid
             </h3>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Click options directly in the grid to assign correct keys.
+              Click a card and type A, B, C, or D to set options and auto-advance. Arrows to navigate.
             </span>
           </div>
-          
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1.25rem' }}>
-            {keysList.map(k => (
-              <div 
-                key={k.question_number} 
-                style={{ 
-                  background: k.correct_option ? 'rgba(99, 102, 241, 0.03)' : 'var(--bg-secondary)', 
-                  border: k.correct_option ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid var(--border-color)', 
-                  padding: '1rem', 
-                  borderRadius: '10px', 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: '0.75rem',
-                  alignItems: 'center',
-                  transition: 'var(--transition)'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: k.correct_option ? 'var(--accent-secondary)' : 'var(--text-secondary)' }}>
-                    Q{k.question_number}
-                  </span>
-                  {k.correct_option && (
-                    <button 
-                      onClick={() => handleOptionSelect(k.question_number, '')}
-                      style={{
-                        background: 'transparent',
-                        border: 0,
-                        color: 'var(--text-muted)',
-                        fontSize: '10px',
-                        cursor: 'pointer',
-                        padding: '2px 4px',
-                        borderRadius: '4px'
-                      }}
-                      onMouseOver={(e) => e.currentTarget.style.color = 'var(--danger)'}
-                      onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {(k.options || ['A', 'B', 'C', 'D']).map(opt => {
-                    const isSelected = k.correct_option === opt;
-                    return (
+            {keysList.map(k => {
+              const isActive = selectedQNum === k.question_number;
+              return (
+                <div
+                  key={k.question_number}
+                  id={`qcard-${k.question_number}`}
+                  onClick={() => setSelectedQNum(k.question_number)}
+                  style={{
+                    background: isActive ? 'rgba(99, 102, 241, 0.08)' : (k.correct_option ? 'rgba(99, 102, 241, 0.03)' : 'var(--bg-secondary)'),
+                    border: isActive ? '2px solid var(--accent-primary)' : (k.correct_option ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid var(--border-color)'),
+                    boxShadow: isActive ? '0 0 15px var(--accent-glow)' : 'none',
+                    transform: isActive ? 'scale(1.02)' : 'scale(1)',
+                    padding: '1rem',
+                    borderRadius: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    transition: 'var(--transition)'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isActive ? 'var(--accent-primary)' : (k.correct_option ? 'var(--accent-secondary)' : 'var(--text-secondary)') }}>
+                      Q{k.question_number}
+                    </span>
+                    {k.correct_option && (
                       <button
-                        key={opt}
-                        onClick={() => handleOptionSelect(k.question_number, opt)}
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          border: isSelected ? '2px solid var(--success)' : '1px solid var(--border-color)',
-                          background: isSelected ? 'var(--success-glow)' : 'transparent',
-                          color: isSelected ? 'var(--success)' : 'var(--text-secondary)',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          transition: 'var(--transition)'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOptionSelect(k.question_number, '');
                         }}
+                        style={{
+                          background: 'transparent',
+                          border: 0,
+                          color: 'var(--text-muted)',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          borderRadius: '4px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.color = 'var(--danger)'}
+                        onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
                       >
-                        {opt}
+                        Clear
                       </button>
-                    );
-                  })}
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {(k.options || ['A', 'B', 'C', 'D']).map(opt => {
+                      const isSelected = k.correct_option === opt;
+                      return (
+                        <button
+                          key={opt}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOptionSelect(k.question_number, opt);
+                            setSelectedQNum(k.question_number);
+                          }}
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            border: isSelected ? '2px solid var(--success)' : '1px solid var(--border-color)',
+                            background: isSelected ? 'var(--success-glow)' : 'transparent',
+                            color: isSelected ? 'var(--success)' : 'var(--text-secondary)',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'var(--transition)'
+                          }}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
