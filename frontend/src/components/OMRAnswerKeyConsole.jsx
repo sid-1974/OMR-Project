@@ -14,6 +14,7 @@ const OMRAnswerKeyConsole = () => {
 
   const [keysList, setKeysList] = useState([]); // Array of { question_number, correct_option }
   const [selectedQNum, setSelectedQNum] = useState(null);
+  const [selectedPattern, setSelectedPattern] = useState('A');
 
   useEffect(() => {
     fetchTemplates();
@@ -40,13 +41,13 @@ const OMRAnswerKeyConsole = () => {
       setSelectedQNum(null);
       return;
     }
-    fetchTemplateDetails(selectedTemplateId);
-  }, [selectedTemplateId]);
+    fetchTemplateDetails(selectedTemplateId, selectedPattern);
+  }, [selectedTemplateId, selectedPattern]);
 
-  const fetchTemplateDetails = async (id) => {
+  const fetchTemplateDetails = async (id, pattern = 'A') => {
     setLoading(true);
     try {
-      const data = await api.getTemplates(id);
+      const data = await api.getTemplates(id, pattern);
       if (data.success) {
         setSelectedTemplate(data.template);
 
@@ -184,12 +185,13 @@ const OMRAnswerKeyConsole = () => {
     try {
       const data = await api.saveAnswerKey({
         template_id: parseInt(selectedTemplateId),
+        pattern: selectedPattern,
         answers: keysList.filter(k => k.correct_option !== '')
       });
 
       if (data.success) {
         alert('Answer keys saved successfully!');
-        fetchTemplateDetails(selectedTemplateId);
+        fetchTemplateDetails(selectedTemplateId, selectedPattern);
       } else {
         setError(data.message || 'Failed to save answer key.');
       }
@@ -247,13 +249,16 @@ const OMRAnswerKeyConsole = () => {
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" style={{ fontWeight: 600 }}>Select OMR Template</label>
             <select
               className="form-input"
               value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
+              onChange={(e) => {
+                setSelectedTemplateId(e.target.value);
+                setSelectedPattern('A'); // Reset to Pattern A on template change
+              }}
             >
               <option value="">-- Choose Template --</option>
               {templates.map(t => (
@@ -261,6 +266,22 @@ const OMRAnswerKeyConsole = () => {
               ))}
             </select>
           </div>
+
+          {selectedTemplate && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>Exam Paper Pattern</label>
+              <select
+                className="form-input"
+                value={selectedPattern}
+                onChange={(e) => setSelectedPattern(e.target.value)}
+              >
+                <option value="A">Pattern A</option>
+                <option value="B">Pattern B</option>
+                <option value="C">Pattern C</option>
+                <option value="D">Pattern D</option>
+              </select>
+            </div>
+          )}
 
           {selectedTemplate && (
             <div style={{

@@ -13,6 +13,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 $template_id = isset($input['template_id']) ? intval($input['template_id']) : 0;
+$pattern = isset($input['pattern']) ? trim($input['pattern']) : 'A';
+if (empty($pattern)) {
+    $pattern = 'A';
+}
 $answers = isset($input['answers']) ? $input['answers'] : null; // Expect array of ['question_number' => X, 'correct_option' => Y]
 
 if ($template_id <= 0 || !is_array($answers)) {
@@ -31,14 +35,14 @@ try {
 
     $pdo->beginTransaction();
 
-    // Clear previous keys for this template
-    $del = $pdo->prepare("DELETE FROM `answer_keys` WHERE template_id = :template_id");
-    $del->execute([':template_id' => $template_id]);
+    // Clear previous keys for this template and pattern
+    $del = $pdo->prepare("DELETE FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern");
+    $del->execute([':template_id' => $template_id, ':pattern' => $pattern]);
 
     // Insert new answer keys
     $ins = $pdo->prepare("
-        INSERT INTO `answer_keys` (template_id, question_number, correct_option) 
-        VALUES (:template_id, :question_number, :correct_option)
+        INSERT INTO `answer_keys` (template_id, pattern, question_number, correct_option) 
+        VALUES (:template_id, :pattern, :question_number, :correct_option)
     ");
 
     foreach ($answers as $ans) {
@@ -48,6 +52,7 @@ try {
         if ($q_num > 0 && !empty($c_opt)) {
             $ins->execute([
                 ':template_id' => $template_id,
+                ':pattern' => $pattern,
                 ':question_number' => $q_num,
                 ':correct_option' => $c_opt
             ]);

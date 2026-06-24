@@ -15,6 +15,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
   const [processingIndex, setProcessingIndex] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanMode, setScanMode] = useState(null); // 'all' | 'manual'
+  const [defaultPattern, setDefaultPattern] = useState('A');
   
   // Active Manual Alignment state
   const [aligningIndex, setAligningIndex] = useState(null);
@@ -75,7 +76,8 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
       alignedBlob: null,
       scannedSheetId: null,
       studentRegno: '',
-      sheetNumber: ''
+      sheetNumber: '',
+      pattern: defaultPattern
     }));
     setFiles(prev => [...prev, ...newQueue]);
   };
@@ -365,11 +367,12 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
         }
 
         // Save automatically in Scan All mode
-        await saveResponsesToBackend(sheetId, scanResults.student_regno, scanResults.sheet_number, scanResults.responses, alignedBlob);
+        await saveResponsesToBackend(sheetId, scanResults.student_regno, scanResults.sheet_number, scanResults.responses, alignedBlob, item.pattern || 'A');
         updateFileItem(idx, { 
           status: 'completed',
           studentRegno: scanResults.student_regno,
           sheetNumber: scanResults.sheet_number,
+          pattern: item.pattern || 'A',
           results: scanResults
         });
 
@@ -387,7 +390,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
   }, [isProcessing, processingIndex]);
 
   // Save scan details to SQL via PHP
-  const saveResponsesToBackend = async (sheetId, regno, sheetNo, responses, alignedBlob) => {
+  const saveResponsesToBackend = async (sheetId, regno, sheetNo, responses, alignedBlob, pattern = 'A') => {
     const formData = new FormData();
     formData.append('scanned_sheet_id', sheetId);
     formData.append('student_regno', regno);
@@ -395,6 +398,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     formData.append('sheet_number', sheetNo);
     formData.append('status', 'approved');
     formData.append('responses', JSON.stringify(responses));
+    formData.append('pattern', pattern);
     
     if (alignedBlob) {
       formData.append('aligned_image', alignedBlob, 'aligned.jpg');
@@ -440,10 +444,12 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
   // Manual Review Panel management
   const openReviewPanel = (idx, scanResults) => {
     setReviewingIndex(idx);
+    const item = files[idx];
     setReviewData({
       studentRegno: scanResults.student_regno.replace(/\?/g, ''),
       sheetNumber: scanResults.sheet_number.replace(/\?/g, ''),
-      responses: [...scanResults.responses]
+      responses: [...scanResults.responses],
+      pattern: item.pattern || 'A'
     });
   };
 
@@ -546,13 +552,15 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
         reviewData.studentRegno,
         reviewData.sheetNumber,
         reviewData.responses,
-        item.alignedBlob
+        item.alignedBlob,
+        reviewData.pattern || 'A'
       );
 
       updateFileItem(idx, {
         status: 'completed',
         studentRegno: reviewData.studentRegno,
         sheetNumber: reviewData.sheetNumber,
+        pattern: reviewData.pattern || 'A',
         results: {
           ...item.results,
           student_regno: reviewData.studentRegno,
@@ -676,6 +684,21 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
               </select>
             </div>
 
+            <div className="form-group">
+              <label className="form-label">Default Paper Pattern</label>
+              <select 
+                className="form-input" 
+                value={defaultPattern} 
+                onChange={(e) => setDefaultPattern(e.target.value)}
+                disabled={isProcessing}
+              >
+                <option value="A">Pattern A</option>
+                <option value="B">Pattern B</option>
+                <option value="C">Pattern C</option>
+                <option value="D">Pattern D</option>
+              </select>
+            </div>
+
             {selectedTemplate && (
               <div 
                 style={{
@@ -747,7 +770,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', flex: 1 }}>
                       <span style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>{item.name}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {item.status === 'completed' && `RegNo: ${item.studentRegno} | Sheet#: ${item.sheetNumber}`}
+                        {item.status === 'completed' && `RegNo: ${item.studentRegno} | Sheet#: ${item.sheetNumber} | Pattern: ${item.pattern || 'A'}`}
                         {item.status === 'failed' && `Error: ${item.error}`}
                         {item.status === 'pending' && 'Queued'}
                         {item.status === 'scanning' && 'Scanning...'}
@@ -757,6 +780,26 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <select
+                        value={item.pattern || 'A'}
+                        onChange={(e) => updateFileItem(idx, { pattern: e.target.value })}
+                        disabled={isProcessing}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
+                          background: 'var(--bg-primary)',
+                          border: '1px solid var(--border-color)',
+                          color: 'var(--text-primary)',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="A">Pattern A</option>
+                        <option value="B">Pattern B</option>
+                        <option value="C">Pattern C</option>
+                        <option value="D">Pattern D</option>
+                      </select>
+
                       {item.status === 'completed' && <span className="badge badge-success">Success</span>}
                       {item.status === 'failed' && <span className="badge badge-danger">Failed</span>}
                       {item.status === 'aligning' && <span className="badge badge-warning">Adjust Page</span>}
@@ -843,8 +886,8 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
               </button>
             </div>
 
-            {/* Student Registration + Sheet No Forms */}
-            <div className="grid-2" style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            {/* Student Registration + Sheet No Forms + Pattern */}
+            <div className="grid-3" style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Student Regno</label>
                 <input 
@@ -864,6 +907,19 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
                   onChange={(e) => setReviewData({ ...reviewData, sheetNumber: e.target.value })} 
                   placeholder="Enter OMR ID"
                 />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Pattern</label>
+                <select
+                  className="form-input"
+                  value={reviewData.pattern}
+                  onChange={(e) => setReviewData({ ...reviewData, pattern: e.target.value })}
+                >
+                  <option value="A">Pattern A</option>
+                  <option value="B">Pattern B</option>
+                  <option value="C">Pattern C</option>
+                  <option value="D">Pattern D</option>
+                </select>
               </div>
             </div>
 

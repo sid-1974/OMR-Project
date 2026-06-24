@@ -19,8 +19,12 @@ try {
         
         if ($template) {
             // Check if there is an associated answer key
-            $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id ORDER BY question_number ASC");
-            $key_stmt->execute([':template_id' => $id]);
+            $pattern = isset($_GET['pattern']) ? trim($_GET['pattern']) : 'A';
+            if (empty($pattern)) {
+                $pattern = 'A';
+            }
+            $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern ORDER BY question_number ASC");
+            $key_stmt->execute([':template_id' => $id, ':pattern' => $pattern]);
             $keys = $key_stmt->fetchAll();
             
             $template['answer_key'] = $keys;

@@ -61,11 +61,11 @@ const OMRResultsDashboard = () => {
     
     // Headers
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Student Reg No,OMR Sheet Number,Total Questions,Correct,Wrong,Blank,Score\r\n";
+    csvContent += "Student Reg No,OMR Sheet Number,Pattern,Total Questions,Correct,Wrong,Blank,Score\r\n";
     
     // Data rows
     resultsData.results.forEach(row => {
-      csvContent += `${row.student_regno},${row.sheet_number},${row.total_questions},${row.correct_answers},${row.wrong_answers},${row.blank_answers},${row.score}\r\n`;
+      csvContent += `${row.student_regno},${row.sheet_number},${row.pattern || 'A'},${row.total_questions},${row.correct_answers},${row.wrong_answers},${row.blank_answers},${row.score}\r\n`;
     });
     
     const encodedUri = encodeURI(csvContent);
@@ -208,6 +208,7 @@ const OMRResultsDashboard = () => {
                 <tr>
                   <th>Student Reg No</th>
                   <th>OMR ID</th>
+                  <th>Pattern</th>
                   <th>Total Questions</th>
                   <th style={{ color: 'var(--success)' }}>Correct</th>
                   <th style={{ color: 'var(--danger)' }}>Wrong</th>
@@ -221,6 +222,9 @@ const OMRResultsDashboard = () => {
                   <tr key={row.scanned_sheet_id}>
                     <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{row.student_regno}</td>
                     <td>{row.sheet_number}</td>
+                    <td>
+                      <span className="badge badge-primary">{row.pattern || 'A'}</span>
+                    </td>
                     <td>{row.total_questions}</td>
                     <td style={{ color: 'var(--success)', fontWeight: 600 }}>{row.correct_answers}</td>
                     <td style={{ color: 'var(--danger)' }}>{row.wrong_answers}</td>
@@ -302,7 +306,9 @@ const OMRResultsDashboard = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
                 <div>
                   <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Comparison Grid</h3>
-                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>RegNo: {viewingStudent.student_regno} | OMR ID: {viewingStudent.sheet_number}</p>
+                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                     RegNo: {viewingStudent.student_regno} | OMR ID: {viewingStudent.sheet_number} | Pattern: <span className="badge badge-primary">{viewingStudent.pattern || 'A'}</span>
+                   </p>
                 </div>
                 <button 
                   className="btn btn-secondary"

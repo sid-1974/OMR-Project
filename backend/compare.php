@@ -19,7 +19,7 @@ if ($template_id <= 0) {
 try {
     // 1. Fetch template questions and correct answers
     $key_stmt = $pdo->prepare("
-        SELECT question_number, correct_option 
+        SELECT question_number, correct_option, pattern 
         FROM `answer_keys` 
         WHERE template_id = :template_id 
         ORDER BY question_number ASC
@@ -35,15 +35,17 @@ try {
         exit();
     }
 
-    // Map answer key
+    // Map answer key by pattern
     $answer_key_map = [];
     foreach ($keys as $k) {
-        $answer_key_map[$k['question_number']] = $k['correct_option'];
+        $p = $k['pattern'];
+        $q = $k['question_number'];
+        $answer_key_map[$p][$q] = $k['correct_option'];
     }
 
     // 2. Fetch evaluation results
     $eval_stmt = $pdo->prepare("
-        SELECT er.*, ss.omr_id, ss.omr_id AS sheet_number, ss.aligned_image_path, ss.raw_image_path
+        SELECT er.*, ss.omr_id, ss.omr_id AS sheet_number, ss.aligned_image_path, ss.raw_image_path, ss.pattern
         FROM `evaluation_results` er
         JOIN `scanned_sheets` ss ON er.scanned_sheet_id = ss.id
         WHERE ss.template_id = :template_id
@@ -69,9 +71,12 @@ try {
             $response_map[$r['question_number']] = $r['selected_option'];
         }
 
-        // Build question-wise correctness array
+        // Build question-wise correctness array based on student's sheet pattern
+        $student_pattern = isset($student['pattern']) ? $student['pattern'] : 'A';
+        $student_answer_key = isset($answer_key_map[$student_pattern]) ? $answer_key_map[$student_pattern] : [];
+
         $comparison_matrix = [];
-        foreach ($answer_key_map as $q_num => $correct_opt) {
+        foreach ($student_answer_key as $q_num => $correct_opt) {
             $sel_opt = isset($response_map[$q_num]) ? $response_map[$q_num] : 'BLANK';
             $is_correct = ($sel_opt === $correct_opt);
             
@@ -88,6 +93,7 @@ try {
             'student_regno' => $student['student_regno'],
             'omr_id' => $student['omr_id'],
             'sheet_number' => $student['sheet_number'],
+            'pattern' => $student_pattern,
             'raw_image_path' => $student['raw_image_path'],
             'aligned_image_path' => $student['aligned_image_path'],
             'total_questions' => $student['total_questions'],

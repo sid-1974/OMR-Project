@@ -13,6 +13,10 @@ $scanned_sheet_id = isset($_POST['scanned_sheet_id']) ? intval($_POST['scanned_s
 $omr_id = isset($_POST['omr_id']) ? trim($_POST['omr_id']) : (isset($_POST['sheet_number']) ? trim($_POST['sheet_number']) : '');
 $student_regno = isset($_POST['student_regno']) ? trim($_POST['student_regno']) : '';
 $status = isset($_POST['status']) ? trim($_POST['status']) : 'approved';
+$pattern = isset($_POST['pattern']) ? trim($_POST['pattern']) : 'A';
+if (empty($pattern)) {
+    $pattern = 'A';
+}
 $responses_json = isset($_POST['responses']) ? $_POST['responses'] : '';
 
 if ($scanned_sheet_id <= 0 || empty($responses_json)) {
@@ -66,7 +70,7 @@ try {
     if (!empty($aligned_image_path)) {
         $upd = $pdo->prepare("
             UPDATE `scanned_sheets` 
-            SET omr_id = :omr_id, student_regno = :student_regno, aligned_image_path = :aligned_image_path, status = :status 
+            SET omr_id = :omr_id, student_regno = :student_regno, aligned_image_path = :aligned_image_path, status = :status, pattern = :pattern 
             WHERE id = :id
         ");
         $upd->execute([
@@ -74,18 +78,20 @@ try {
             ':student_regno' => $student_regno,
             ':aligned_image_path' => $aligned_image_path,
             ':status' => $status,
+            ':pattern' => $pattern,
             ':id' => $scanned_sheet_id
         ]);
     } else {
         $upd = $pdo->prepare("
             UPDATE `scanned_sheets` 
-            SET omr_id = :omr_id, student_regno = :student_regno, status = :status 
+            SET omr_id = :omr_id, student_regno = :student_regno, status = :status, pattern = :pattern 
             WHERE id = :id
         ");
         $upd->execute([
             ':omr_id' => $omr_id,
             ':student_regno' => $student_regno,
             ':status' => $status,
+            ':pattern' => $pattern,
             ':id' => $scanned_sheet_id
         ]);
     }
@@ -111,8 +117,8 @@ try {
     }
 
     // Evaluate score in real-time if answer key exists
-    $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id");
-    $key_stmt->execute([':template_id' => $template_id]);
+    $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern");
+    $key_stmt->execute([':template_id' => $template_id, ':pattern' => $pattern]);
     $keys = $key_stmt->fetchAll();
 
     if (count($keys) > 0) {

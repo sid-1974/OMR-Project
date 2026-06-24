@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS `omr_templates` (
 CREATE TABLE IF NOT EXISTS `answer_keys` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `template_id` INT NOT NULL,
+  `pattern` VARCHAR(10) NOT NULL DEFAULT 'A',
   `question_number` INT NOT NULL,
   `correct_option` CHAR(5) NOT NULL, -- Supporting multi-answers if needed, e.g. 'A', 'B', etc.
   FOREIGN KEY (`template_id`) REFERENCES `omr_templates`(`id`) ON DELETE CASCADE
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS `answer_keys` (
 CREATE TABLE IF NOT EXISTS `scanned_sheets` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `template_id` INT NOT NULL,
+  `pattern` VARCHAR(10) NOT NULL DEFAULT 'A',
   `omr_id` VARCHAR(50) DEFAULT NULL,
   `student_regno` VARCHAR(50) DEFAULT NULL,
   `raw_image_path` VARCHAR(255) NOT NULL,
