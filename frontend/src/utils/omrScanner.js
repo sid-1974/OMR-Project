@@ -42,6 +42,99 @@ const solveGaussian = (A, B) => {
   return h;
 };
 
+// Finds the top and bottom extremes of a timing track
+const findTimingTrackExtremes = (ctx, startX, startY, searchW, searchH) => {
+  const imgData = ctx.getImageData(startX, startY, searchW, searchH);
+  const data = imgData.data;
+  const w = imgData.width;
+  const h = imgData.height;
+
+  const gray = new Uint8Array(w * h);
+  let sumGray = 0;
+  for (let i = 0; i < w * h; i++) {
+    const r = data[i * 4];
+    const g = data[i * 4 + 1];
+    const b = data[i * 4 + 2];
+    gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    sumGray += gray[i];
+  }
+  const avgGray = sumGray / (w * h || 1);
+  const thresh = Math.min(130, avgGray * 0.7);
+
+  const visited = new Uint8Array(w * h);
+  const components = [];
+
+  for (let y = 3; y < h - 3; y++) {
+    for (let x = 3; x < w - 3; x++) {
+      const idx = y * w + x;
+      if (gray[idx] < thresh && !visited[idx]) {
+        let sumX = 0, sumY = 0, count = 0;
+        let minX = x, maxX = x, minY = y, maxY = y;
+
+        const queue = [idx];
+        visited[idx] = 1;
+
+        let qHead = 0;
+        while (qHead < queue.length) {
+          const cur = queue[qHead++];
+          const cx = cur % w;
+          const cy = Math.floor(cur / w);
+
+          sumX += cx;
+          sumY += cy;
+          count++;
+
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy;
+          if (cy > maxY) maxY = cy;
+
+          const neighbors = [cur - 1, cur + 1, cur - w, cur + w];
+          for (const n of neighbors) {
+            const nx = n % w, ny = Math.floor(n / w);
+            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+              if (gray[n] < thresh && !visited[n]) {
+                visited[n] = 1;
+                queue.push(n);
+              }
+            }
+          }
+        }
+
+        const bw = maxX - minX + 1;
+        const bh = maxY - minY + 1;
+        const density = count / (bw * bh);
+        
+        // Relaxed constraints for timing mark rectangles
+        if (bw >= 5 && bw <= 150 && bh >= 3 && bh <= 80 && density >= 0.3) {
+          components.push({
+            cx: startX + sumX / count,
+            cy: startY + sumY / count,
+            width: bw,
+            height: bh,
+            size: count
+          });
+        }
+      }
+    }
+  }
+
+  if (components.length < 2) return null;
+
+  // Filter out stray marks by enforcing vertical alignment (all marks should have roughly the same X)
+  components.sort((a, b) => a.cx - b.cx);
+  const medianX = components[Math.floor(components.length / 2)].cx;
+  const alignedComponents = components.filter(c => Math.abs(c.cx - medianX) < 25);
+
+  if (alignedComponents.length < 2) return null;
+
+  alignedComponents.sort((a, b) => a.cy - b.cy);
+  return {
+    top: alignedComponents[0],
+    bottom: alignedComponents[alignedComponents.length - 1]
+  };
+};
+
 // BFS Blob Finder in a Search region of the canvas
 const findAnchorInRegion = (
   ctx,
@@ -217,6 +310,46 @@ export const detectAnchors = async (canvasElement, template = null) => {
       templateAnchors = JSON.parse(templateAnchors);
 
     if (templateAnchors) {
+      if (templateAnchors.type === 'timing_marks' && templateAnchors.timingMarks) {
+        const leftTrack = templateAnchors.timingMarks.left;
+        const rightTrack = templateAnchors.timingMarks.right;
+
+        const scaleX = w / tW;
+        const scaleY = h / tH;
+
+        // Add large padding (150px vertical) to the search area to handle significant paper shifts during scanning
+        const vPadding = 150;
+        const hPadding = 50;
+        
+        const lx = Math.max(0, Math.round(leftTrack.x * scaleX) - hPadding);
+        const ly = Math.max(0, Math.round(leftTrack.y * scaleY) - vPadding);
+        const lw = Math.min(w - lx, Math.round(leftTrack.width * scaleX) + hPadding * 2);
+        const lh = Math.min(h - ly, Math.round(leftTrack.height * scaleY) + vPadding * 2);
+
+        const rx = Math.max(0, Math.round(rightTrack.x * scaleX) - hPadding);
+        const ry = Math.max(0, Math.round(rightTrack.y * scaleY) - vPadding);
+        const rw = Math.min(w - rx, Math.round(rightTrack.width * scaleX) + hPadding * 2);
+        const rh = Math.min(h - ry, Math.round(rightTrack.height * scaleY) + vPadding * 2);
+
+        const leftExtremes = findTimingTrackExtremes(ctx, lx, ly, lw, lh);
+        const rightExtremes = findTimingTrackExtremes(ctx, rx, ry, rw, rh);
+
+        const getFallback = (cornerName) => {
+            if (cornerName === "topLeft") return { x: originalWidth * 0.05, y: originalHeight * 0.05 };
+            if (cornerName === "topRight") return { x: originalWidth * 0.95, y: originalHeight * 0.05 };
+            if (cornerName === "bottomLeft") return { x: originalWidth * 0.05, y: originalHeight * 0.95 };
+            return { x: originalWidth * 0.95, y: originalHeight * 0.95 };
+        };
+
+        return {
+          topLeft: leftExtremes?.top ? { x: leftExtremes.top.cx / scale, y: leftExtremes.top.cy / scale } : getFallback("topLeft"),
+          bottomLeft: leftExtremes?.bottom ? { x: leftExtremes.bottom.cx / scale, y: leftExtremes.bottom.cy / scale } : getFallback("bottomLeft"),
+          topRight: rightExtremes?.top ? { x: rightExtremes.top.cx / scale, y: rightExtremes.top.cy / scale } : getFallback("topRight"),
+          bottomRight: rightExtremes?.bottom ? { x: rightExtremes.bottom.cx / scale, y: rightExtremes.bottom.cy / scale } : getFallback("bottomRight"),
+          autoDetected: !!(leftExtremes && rightExtremes)
+        };
+      }
+
       scaledExpected = {
         topLeft: {
           x: (templateAnchors.topLeft.x / tW) * w,
@@ -553,8 +686,8 @@ export const scanQuestionRow = (
   // Sort by fill ratio descending
   const sorted = [...results].sort((a, b) => b.fillRatio - a.fillRatio);
 
-  const PRIMARY_FILL_THRESHOLD = 0.35; // Bubble is filled if > 35% pixels are dark
-  const AMBIGUOUS_MARGIN = 0.12; // If difference between 1st and 2nd option is small
+  const PRIMARY_FILL_THRESHOLD = 0.45; // Bubble is filled if > 45% pixels are dark (increased to ignore printed text)
+  const AMBIGUOUS_MARGIN = 0.20; // If difference between 1st and 2nd option is smaller than this, it's multiple
 
   const best = sorted[0];
   const second = sorted[1];
@@ -567,13 +700,15 @@ export const scanQuestionRow = (
     };
   }
 
-  // Check if multiple bubbles are filled
+  // Check if multiple bubbles are filled AND they are competitive
   if (second && second.fillRatio >= PRIMARY_FILL_THRESHOLD) {
-    return {
-      selected: "MULT",
-      ratios: results,
-      confidence: 0.0,
-    };
+    if (best.fillRatio - second.fillRatio < AMBIGUOUS_MARGIN) {
+      return {
+        selected: "MULT",
+        ratios: results,
+        confidence: 0.0,
+      };
+    }
   }
 
   return {
@@ -596,15 +731,10 @@ export const scanRegistrationGrid = (
   let registrationNumber = "";
   let success = true;
 
-  // 30% fill threshold for robust digit detection
-  const FILL_THRESHOLD = 0.3;
+  const FILL_THRESHOLD = 0.45;
 
   colsConfig.forEach((colBubbles) => {
-    let selectedLabel = "?";
-
-    // Scan bubble wise: row by row, top to bottom (from 1st row to last row)
-    for (let i = 0; i < colBubbles.length; i++) {
-      const bubble = colBubbles[i];
+    const results = colBubbles.map((bubble) => {
       const fillRatio = analyzeBubbleFill(
         imgDataOrCtx,
         bubble.x,
@@ -612,19 +742,17 @@ export const scanRegistrationGrid = (
         bubble.r,
         thresholdValue,
       );
+      return { label: bubble.label, fillRatio };
+    });
 
-      // If it is black or blue circled (filled), take that number count / label and move next column
-      if (fillRatio >= FILL_THRESHOLD) {
-        selectedLabel = bubble.label;
-        break; // Stop scanning this column, move to the next column
-      }
-    }
+    const sorted = [...results].sort((a, b) => b.fillRatio - a.fillRatio);
+    const best = sorted[0];
 
-    if (selectedLabel === "?") {
+    if (best && best.fillRatio >= FILL_THRESHOLD) {
+      registrationNumber += best.label;
+    } else {
       registrationNumber += "?";
       success = false;
-    } else {
-      registrationNumber += selectedLabel;
     }
   });
 

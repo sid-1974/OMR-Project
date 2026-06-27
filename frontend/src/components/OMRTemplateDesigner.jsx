@@ -11,8 +11,8 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Coordinate configurations
   const [anchors, setAnchors] = useState({
+    type: '4_corners',
     topLeft: { x: 40, y: 40 },
     topRight: { x: 760, y: 40 },
     bottomLeft: { x: 40, y: 1060 },
@@ -54,6 +54,12 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     columns: 6,
     rows: 10,
     bubbleRadius: 8
+  });
+
+  const [timingMarksConfig, setTimingMarksConfig] = useState({
+    enabled: false,
+    left: { x: 20, y: 100, width: 20, height: 900, count: 45 },
+    right: { x: 760, y: 100, width: 20, height: 900, count: 45 }
   });
 
   const [questionBlocks, setQuestionBlocks] = useState([
@@ -153,6 +159,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         fileInputRef.current.value = '';
       }
       setAnchors({
+        type: '4_corners',
         topLeft: { x: 40, y: 40 },
         topRight: { x: 760, y: 40 },
         bottomLeft: { x: 40, y: 1060 },
@@ -192,6 +199,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         rows: 10,
         bubbleRadius: 8
       });
+      setTimingMarksConfig({
+        enabled: false,
+        left: { x: 20, y: 100, width: 20, height: 900, count: 45 },
+        right: { x: 760, y: 100, width: 20, height: 900, count: 45 }
+      });
       setQuestionBlocks([
         {
           id: 1,
@@ -225,7 +237,15 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         setImageDimensions({ width: parseInt(t.width) || 800, height: parseInt(t.height) || 1100 });
 
         const loadedAnchors = typeof t.anchors_json === 'string' ? JSON.parse(t.anchors_json) : t.anchors_json;
-        setAnchors(loadedAnchors);
+        
+        const defaultTimingMarks = { enabled: false, left: { x: 20, y: 100, width: 20, height: 900, count: 45 }, right: { x: 760, y: 100, width: 20, height: 900, count: 45 } };
+        if (loadedAnchors && loadedAnchors.timingMarks) {
+          setTimingMarksConfig(loadedAnchors.timingMarks);
+          delete loadedAnchors.timingMarks;
+        } else {
+          setTimingMarksConfig(defaultTimingMarks);
+        }
+        setAnchors({ type: '4_corners', ...loadedAnchors });
 
         const defaultRegNo = { enabled: false, x: 100, y: 150, width: 250, height: 300, columns: 6, rows: 10, bubbleRadius: 8, sequence: '0-9' };
         const parsedRegNo = (t.regno_config && t.regno_config !== 'null') ? (typeof t.regno_config === 'string' ? JSON.parse(t.regno_config) : t.regno_config) : null;
@@ -470,11 +490,12 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     ctx.drawImage(imageObj, 0, 0, canvas.width, canvas.height);
 
     // Draw anchor markers (Red crosshairs)
-    if (activeTab === 'anchors') {
+    if ((!anchors.type || anchors.type === '4_corners') && activeTab === 'anchors') {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2;
-      Object.keys(anchors).forEach((key) => {
+      ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].forEach((key) => {
         const pt = anchors[key];
+        if(!pt) return;
         // Draw square bounding box around anchor
         ctx.strokeRect(pt.x - 12, pt.y - 12, 24, 24);
         ctx.beginPath();
@@ -546,6 +567,32 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       }
     }
 
+    // Draw Timing Marks (Pink rectangles)
+    if (anchors.type === 'timing_marks' && (activeTab === 'all' || activeTab === 'anchors')) {
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 1.5;
+
+      ['left', 'right'].forEach(side => {
+        const tm = timingMarksConfig[side];
+        ctx.strokeRect(tm.x, tm.y, tm.width, tm.height);
+        
+        ctx.fillStyle = 'rgba(236, 72, 153, 0.2)';
+        ctx.fillText(`${side === 'left' ? 'Left' : 'Right'} Timing Track`, tm.x, tm.y - 6);
+
+        // Draw individual marks
+        const spacing = tm.height / (tm.count - 1 || 1);
+        ctx.fillStyle = 'rgba(236, 72, 153, 0.5)';
+        for (let i = 0; i < tm.count; i++) {
+          const markY = tm.y + i * spacing;
+          ctx.fillRect(tm.x, markY - 2, tm.width, 4);
+        }
+
+        if (activeTab === 'anchors') {
+          drawResizeHandles(ctx, tm, '#ec4899');
+        }
+      });
+    }
+
     // Draw Question Blocks (Green circles)
     if (activeTab === 'all' || activeTab === 'questions') {
       questionBlocks.forEach(block => {
@@ -580,11 +627,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
   useEffect(() => {
     drawCanvas();
-  }, [imageObj, anchors, regNoConfig, qpCodeConfig, sheetNoConfig, questionBlocks, activeTab, activeQBlockId]);
+  }, [imageObj, anchors, regNoConfig, qpCodeConfig, sheetNoConfig, timingMarksConfig, questionBlocks, activeTab, activeQBlockId]);
 
   // Update cursor dynamically based on hover coordinates
   const handleCanvasMouseMove = (e) => {
-    if (activeTab === 'anchors') return;
+    if (activeTab === 'anchors' && (!anchors.type || anchors.type === '4_corners')) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -596,6 +643,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     else if (activeTab === 'qpcode' && qpCodeConfig.enabled) target = qpCodeConfig;
     else if (activeTab === 'sheetno' && sheetNoConfig.enabled && sheetNoConfig.mode === 'barcode') target = sheetNoConfig;
     else if (activeTab === 'questions' && activeQBlock) target = activeQBlock;
+    else if (activeTab === 'anchors' && anchors.type === 'timing_marks') {
+      const isNearTM = (tm) => x >= tm.x - 15 && x <= tm.x + tm.width + 15 && y >= tm.y - 15 && y <= tm.y + tm.height + 15;
+      if (isNearTM(timingMarksConfig.left)) target = timingMarksConfig.left;
+      else if (isNearTM(timingMarksConfig.right)) target = timingMarksConfig.right;
+    }
 
     if (!target) {
       canvas.style.cursor = 'default';
@@ -637,10 +689,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
     const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
-    if (activeTab === 'anchors') {
+    if (activeTab === 'anchors' && (!anchors.type || anchors.type === '4_corners')) {
       // Check which anchor is clicked
-      const clickedAnchor = Object.keys(anchors).find(key => {
+      const clickedAnchor = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].find(key => {
         const pt = anchors[key];
+        if(!pt) return false;
         const dist = Math.sqrt((pt.x - clickX) ** 2 + (pt.y - clickY) ** 2);
         return dist < 20; // 20px hit area
       });
@@ -690,6 +743,21 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
           setQuestionBlocks(prev => prev.map(b => Number(b.id) === Number(activeQBlockId) ? newVal : b));
         }
       };
+    } else if (activeTab === 'anchors' && anchors.type === 'timing_marks') {
+      const isNearTM = (tm) => clickX >= tm.x - 15 && clickX <= tm.x + tm.width + 15 && clickY >= tm.y - 15 && clickY <= tm.y + tm.height + 15;
+      if (isNearTM(timingMarksConfig.left)) {
+        target = timingMarksConfig.left;
+        setTarget = (newVal) => {
+          if (typeof newVal === 'function') setTimingMarksConfig(prev => ({ ...prev, left: newVal(prev.left) }));
+          else setTimingMarksConfig(prev => ({ ...prev, left: newVal }));
+        };
+      } else if (isNearTM(timingMarksConfig.right)) {
+        target = timingMarksConfig.right;
+        setTarget = (newVal) => {
+          if (typeof newVal === 'function') setTimingMarksConfig(prev => ({ ...prev, right: newVal(prev.right) }));
+          else setTimingMarksConfig(prev => ({ ...prev, right: newVal }));
+        };
+      }
     }
 
     if (!target || !setTarget) return;
@@ -913,7 +981,20 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         formData.append('blank_image', file);
       }
 
-      formData.append('anchors_json', JSON.stringify(anchors));
+      const anchorsToSave = { ...anchors };
+      if (anchors.type === 'timing_marks') {
+        const lx = timingMarksConfig.left.x + timingMarksConfig.left.width / 2;
+        const rx = timingMarksConfig.right.x + timingMarksConfig.right.width / 2;
+        anchorsToSave.topLeft = { x: Math.round(lx), y: timingMarksConfig.left.y };
+        anchorsToSave.bottomLeft = { x: Math.round(lx), y: timingMarksConfig.left.y + timingMarksConfig.left.height };
+        anchorsToSave.topRight = { x: Math.round(rx), y: timingMarksConfig.right.y };
+        anchorsToSave.bottomRight = { x: Math.round(rx), y: timingMarksConfig.right.y + timingMarksConfig.right.height };
+      }
+
+      formData.append('anchors_json', JSON.stringify({
+        ...anchorsToSave,
+        timingMarks: timingMarksConfig
+      }));
       formData.append('regno_config', regNoConfig.enabled ? JSON.stringify(regNoConfig) : 'null');
       formData.append('qpcode_config', qpCodeConfig.enabled ? JSON.stringify(qpCodeConfig) : 'null');
       formData.append('sheetno_config', sheetNoConfig.enabled ? JSON.stringify(sheetNoConfig) : 'null');
@@ -1136,17 +1217,69 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
               {/* Anchors Editor */}
               {activeTab === 'anchors' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <HelpCircle size={18} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-                    <span>Drag the 4 red circles on the canvas directly onto the black alignment marks on the sheet.</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label className="form-label">Anchor Strategy</label>
+                    <SearchableDropdown
+                      options={[
+                        { label: "4 Corner Marks (Default)", value: "4_corners" },
+                        { label: "Timing Marks (Left/Right Tracks)", value: "timing_marks" }
+                      ]}
+                      value={anchors.type || '4_corners'}
+                      onChange={(val) => setAnchors({ ...anchors, type: val })}
+                    />
                   </div>
-                  {Object.keys(anchors).map(key => (
-                    <div key={key} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', width: '90px', textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{key}:</span>
-                      <input type="number" className="form-input" style={{ padding: '4px 8px', fontSize: '0.8rem' }} value={anchors[key].x} onChange={(e) => setAnchors({ ...anchors, [key]: { ...anchors[key], x: parseInt(e.target.value) || 0 } })} placeholder="X" />
-                      <input type="number" className="form-input" style={{ padding: '4px 8px', fontSize: '0.8rem' }} value={anchors[key].y} onChange={(e) => setAnchors({ ...anchors, [key]: { ...anchors[key], y: parseInt(e.target.value) || 0 } })} placeholder="Y" />
+
+                  {(!anchors.type || anchors.type === '4_corners') && (
+                    <>
+                      <div style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                        <HelpCircle size={18} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                        <span>Drag the 4 red circles on the canvas directly onto the black alignment marks on the sheet.</span>
+                      </div>
+                      {['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].map(key => (
+                        <div key={key} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', width: '90px', textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{key}:</span>
+                          <input type="number" className="form-input" style={{ padding: '4px 8px', fontSize: '0.8rem' }} value={anchors[key]?.x || 0} onChange={(e) => setAnchors({ ...anchors, [key]: { ...anchors[key], x: parseInt(e.target.value) || 0 } })} placeholder="X" />
+                          <input type="number" className="form-input" style={{ padding: '4px 8px', fontSize: '0.8rem' }} value={anchors[key]?.y || 0} onChange={(e) => setAnchors({ ...anchors, [key]: { ...anchors[key], y: parseInt(e.target.value) || 0 } })} placeholder="Y" />
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {anchors.type === 'timing_marks' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                        <HelpCircle size={18} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                        <span>Drag the pink bounding boxes completely over the left and right timing mark tracks.</span>
+                      </div>
+                      {['left', 'right'].map(side => (
+                        <div key={side} style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                          <h4 style={{ textTransform: 'capitalize', marginBottom: '0.5rem', fontSize: '0.85rem' }}>{side} Timing Track</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            <div>
+                              <label className="form-label" style={{ fontSize: '0.75rem' }}>X</label>
+                              <input type="number" className="form-input" value={timingMarksConfig[side].x} onChange={(e) => setTimingMarksConfig({ ...timingMarksConfig, [side]: { ...timingMarksConfig[side], x: parseInt(e.target.value) || 0 } })} />
+                            </div>
+                            <div>
+                              <label className="form-label" style={{ fontSize: '0.75rem' }}>Y</label>
+                              <input type="number" className="form-input" value={timingMarksConfig[side].y} onChange={(e) => setTimingMarksConfig({ ...timingMarksConfig, [side]: { ...timingMarksConfig[side], y: parseInt(e.target.value) || 0 } })} />
+                            </div>
+                            <div>
+                              <label className="form-label" style={{ fontSize: '0.75rem' }}>Width</label>
+                              <input type="number" className="form-input" value={timingMarksConfig[side].width} onChange={(e) => setTimingMarksConfig({ ...timingMarksConfig, [side]: { ...timingMarksConfig[side], width: parseInt(e.target.value) || 0 } })} />
+                            </div>
+                            <div>
+                              <label className="form-label" style={{ fontSize: '0.75rem' }}>Height</label>
+                              <input type="number" className="form-input" value={timingMarksConfig[side].height} onChange={(e) => setTimingMarksConfig({ ...timingMarksConfig, [side]: { ...timingMarksConfig[side], height: parseInt(e.target.value) || 0 } })} />
+                            </div>
+                            <div style={{ gridColumn: 'span 2' }}>
+                              <label className="form-label" style={{ fontSize: '0.75rem' }}>Number of Marks</label>
+                              <input type="number" className="form-input" value={timingMarksConfig[side].count} onChange={(e) => setTimingMarksConfig({ ...timingMarksConfig, [side]: { ...timingMarksConfig[side], count: parseInt(e.target.value) || 0 } })} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
 

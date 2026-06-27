@@ -340,11 +340,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
           const errFile = files[firstErrorIdx];
           if (errFile.status === 'aligning') setAligningIndex(firstErrorIdx);
           else openReviewPanel(firstErrorIdx, errFile.results);
-        } else {
-          if (onEvaluationComplete) onEvaluationComplete();
         }
-      } else {
-        if (onEvaluationComplete) onEvaluationComplete();
       }
       return;
     }
@@ -819,14 +815,11 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
       setReviewData(null);
 
       if (scanMode === 'all') {
-        // Find next error
         const nextErrorIdx = files.findIndex((f, i) => i > idx && (f.status === 'review' || f.status === 'aligning'));
         if (nextErrorIdx !== -1) {
           const errFile = files[nextErrorIdx];
           if (errFile.status === 'aligning') setAligningIndex(nextErrorIdx);
           else openReviewPanel(nextErrorIdx, errFile.results);
-        } else {
-          if (onEvaluationComplete) onEvaluationComplete();
         }
       } else {
         // Resume the processing queue
@@ -1022,20 +1015,29 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
             )}
 
             {files.length > 0 && !isProcessing && (
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  <button
+                    className="btn btn-primary"
+                    style={{ flex: 1 }}
+                    onClick={() => startProcessing('all')}
+                  >
+                    <Play size={16} /> Scan All (Auto)
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => startProcessing('manual')}
+                  >
+                    <CheckSquare size={16} /> Manual Approval
+                  </button>
+                </div>
                 <button
-                  className="btn btn-primary"
-                  style={{ flex: 1 }}
-                  onClick={() => startProcessing('all')}
+                  className="btn btn-success"
+                  style={{ width: '100%', padding: '0.75rem', fontWeight: 600 }}
+                  onClick={() => { if (onEvaluationComplete) onEvaluationComplete(); }}
                 >
-                  <Play size={16} /> Scan All (Auto)
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  style={{ flex: 1 }}
-                  onClick={() => startProcessing('manual')}
-                >
-                  <CheckSquare size={16} /> Manual Approval
+                  Done Scanning &rarr; View Results
                 </button>
               </div>
             )}
