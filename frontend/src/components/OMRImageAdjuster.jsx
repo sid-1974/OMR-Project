@@ -136,17 +136,61 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  const handleConfirm = () => {
-    if (!warpedCanvasRef.current) return;
-    
-    // Convert warped canvas to blob to upload
-    warpedCanvasRef.current.toBlob((blob) => {
-      onAligned({
-        blob: blob,
-        dataUrl: warpedCanvasRef.current.toDataURL('image/jpeg', 0.9),
-        anchors: anchors
+  const handleConfirm = async () => {
+    if (!imageObj) return;
+    setLoading(true);
+
+    try {
+      // Reconstruct the scale factor used during initialization
+      const maxWidth = 600;
+      const scale = imageObj.width > maxWidth ? maxWidth / imageObj.width : 1;
+
+      // Scale anchors back to the original full-resolution image coordinates
+      const fullResAnchors = {
+        topLeft: { x: anchors.topLeft.x / scale, y: anchors.topLeft.y / scale },
+        topRight: { x: anchors.topRight.x / scale, y: anchors.topRight.y / scale },
+        bottomLeft: { x: anchors.bottomLeft.x / scale, y: anchors.bottomLeft.y / scale },
+        bottomRight: { x: anchors.bottomRight.x / scale, y: anchors.bottomRight.y / scale }
+      };
+
+      // Create a temporary full-resolution raw canvas
+      const fullRawCanvas = document.createElement('canvas');
+      fullRawCanvas.width = imageObj.width;
+      fullRawCanvas.height = imageObj.height;
+      const rawCtx = fullRawCanvas.getContext('2d');
+      rawCtx.drawImage(imageObj, 0, 0);
+
+      // Create the final high-quality warped canvas
+      const fullWarpedCanvas = document.createElement('canvas');
+      const targetW = template.width || 800;
+      const targetH = template.height || 1100;
+      fullWarpedCanvas.width = targetW;
+      fullWarpedCanvas.height = targetH;
+
+      let templateAnchors = template.anchors_json;
+      if (typeof templateAnchors === 'string') {
+        templateAnchors = JSON.parse(templateAnchors);
+      }
+
+      await warpPerspective(fullRawCanvas, fullWarpedCanvas, fullResAnchors, {
+        width: targetW,
+        height: targetH,
+        anchors: templateAnchors
       });
-    }, 'image/jpeg', 0.9);
+
+      fullWarpedCanvas.toBlob((blob) => {
+        onAligned({
+          blob: blob,
+          dataUrl: fullWarpedCanvas.toDataURL('image/jpeg', 0.95),
+          anchors: fullResAnchors
+        });
+        setLoading(false);
+      }, 'image/jpeg', 0.95);
+
+    } catch (err) {
+      console.error("Full resolution warp failed", err);
+      setLoading(false);
+    }
   };
 
   return (

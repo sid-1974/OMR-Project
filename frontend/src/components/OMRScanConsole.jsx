@@ -782,7 +782,36 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     setIsProcessing(false);
   };
 
+  const triggerManualAlignmentFromReview = () => {
+    const idx = reviewingIndex;
+    updateFileItem(idx, { status: 'aligning' });
+    setReviewingIndex(null);
+    setReviewData(null);
+    setIsProcessing(false);
+    setAligningIndex(idx);
+  };
+
   const saveReviewApproval = async () => {
+    let qpcodeConfig = selectedTemplate?.qpcode_config;
+    if (typeof qpcodeConfig === 'string') qpcodeConfig = JSON.parse(qpcodeConfig);
+    let regConfig = selectedTemplate?.regno_config;
+    if (typeof regConfig === 'string') regConfig = JSON.parse(regConfig);
+    let sheetConfig = selectedTemplate?.sheetno_config;
+    if (typeof sheetConfig === 'string') sheetConfig = JSON.parse(sheetConfig);
+
+    if (regConfig?.enabled && !reviewData.studentRegno?.trim()) {
+      alert("Student Reg No is required to approve this sheet.");
+      return;
+    }
+    if (sheetConfig?.enabled && !reviewData.sheetNumber?.trim()) {
+      alert("OMR ID is required to approve this sheet.");
+      return;
+    }
+    if (qpcodeConfig?.enabled && !reviewData.qpcode?.trim()) {
+      alert("QP Code is required to approve this sheet.");
+      return;
+    }
+
     setLoadingReviewSave(true);
     const idx = reviewingIndex;
     const item = files[idx];
@@ -1211,6 +1240,13 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
                   disabled={loadingReviewSave}
                 >
                   Back to Queue
+                </button>
+                <button
+                  className="btn btn-warning"
+                  onClick={triggerManualAlignmentFromReview}
+                  disabled={loadingReviewSave}
+                >
+                  Re-Align Sheet
                 </button>
                 <button
                   className="btn btn-success"
