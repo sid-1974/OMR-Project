@@ -17,6 +17,10 @@ $pattern = isset($input['pattern']) ? trim($input['pattern']) : 'A';
 if (empty($pattern)) {
     $pattern = 'A';
 }
+$qpcode = isset($input['qpcode']) ? trim($input['qpcode']) : null;
+if ($qpcode === '') {
+    $qpcode = null;
+}
 $answers = isset($input['answers']) ? $input['answers'] : null; // Expect array of ['question_number' => X, 'correct_option' => Y]
 
 if ($template_id <= 0 || !is_array($answers)) {
@@ -35,14 +39,19 @@ try {
 
     $pdo->beginTransaction();
 
-    // Clear previous keys for this template and pattern
-    $del = $pdo->prepare("DELETE FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern");
-    $del->execute([':template_id' => $template_id, ':pattern' => $pattern]);
+    // Clear previous keys for this template, pattern, and qpcode
+    if ($qpcode === null) {
+        $del = $pdo->prepare("DELETE FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern AND (qpcode IS NULL OR qpcode = '')");
+        $del->execute([':template_id' => $template_id, ':pattern' => $pattern]);
+    } else {
+        $del = $pdo->prepare("DELETE FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern AND qpcode = :qpcode");
+        $del->execute([':template_id' => $template_id, ':pattern' => $pattern, ':qpcode' => $qpcode]);
+    }
 
     // Insert new answer keys
     $ins = $pdo->prepare("
-        INSERT INTO `answer_keys` (template_id, pattern, question_number, correct_option) 
-        VALUES (:template_id, :pattern, :question_number, :correct_option)
+        INSERT INTO `answer_keys` (template_id, pattern, qpcode, question_number, correct_option) 
+        VALUES (:template_id, :pattern, :qpcode, :question_number, :correct_option)
     ");
 
     foreach ($answers as $ans) {
@@ -53,6 +62,7 @@ try {
             $ins->execute([
                 ':template_id' => $template_id,
                 ':pattern' => $pattern,
+                ':qpcode' => $qpcode,
                 ':question_number' => $q_num,
                 ':correct_option' => $c_opt
             ]);

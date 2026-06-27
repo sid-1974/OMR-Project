@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Info, Key, AlertCircle } from 'lucide-react';
 import { api } from '../api/api';
+import SearchableDropdown from './SearchableDropdown';
 
 const OMRAnswerKeyConsole = () => {
 
   const [templates, setTemplates] = useState([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState(null);
-
+  const [selectedQpCode, setSelectedQpCode] = useState('');
+  const [selectedPattern, setSelectedPattern] = useState('A');
+  const [availableQpCodes, setAvailableQpCodes] = useState([]);
+  const [keysList, setKeysList] = useState([]);
+  const [selectedQNum, setSelectedQNum] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const [keysList, setKeysList] = useState([]); // Array of { question_number, correct_option }
-  const [selectedQNum, setSelectedQNum] = useState(null);
-  const [selectedPattern, setSelectedPattern] = useState('A');
+  const uniqueTemplateNames = Array.from(new Set(templates.map(t => t.name))).filter(Boolean);
 
   useEffect(() => {
     fetchTemplates();
@@ -26,7 +30,8 @@ const OMRAnswerKeyConsole = () => {
       if (data.success) {
         setTemplates(data.templates);
         if (data.templates.length > 0) {
-          setSelectedTemplateId(data.templates[0].id.toString());
+          const firstUniqueName = Array.from(new Set(data.templates.map(t => t.name))).filter(Boolean)[0];
+          setSelectedTemplateName(firstUniqueName);
         }
       }
     } catch (err) {
@@ -35,19 +40,65 @@ const OMRAnswerKeyConsole = () => {
   };
 
   useEffect(() => {
-    if (!selectedTemplateId) {
+    if (!selectedTemplateName) {
       setSelectedTemplate(null);
       setKeysList([]);
       setSelectedQNum(null);
+      setAvailableQpCodes([]);
+      setSelectedTemplateId('');
       return;
     }
-    fetchTemplateDetails(selectedTemplateId, selectedPattern);
-  }, [selectedTemplateId, selectedPattern]);
 
-  const fetchTemplateDetails = async (id, pattern = 'A') => {
+    const matchingTemplates = templates.filter(t => t.name === selectedTemplateName);
+    const codes = new Set();
+    matchingTemplates.forEach(t => {
+      if (t.qpcode) {
+        t.qpcode.split(',').forEach(c => codes.add(c.trim()));
+      }
+    });
+    const parsedCodes = Array.from(codes).filter(Boolean);
+    setAvailableQpCodes(parsedCodes);
+    
+    // Automatically select the first QP Code if available and none selected
+    if (parsedCodes.length > 0 && !parsedCodes.includes(selectedQpCode)) {
+      setSelectedQpCode(parsedCodes[0]);
+    } else if (parsedCodes.length === 0) {
+      setSelectedQpCode('');
+    }
+  }, [selectedTemplateName, templates]);
+
+  useEffect(() => {
+    if (!selectedTemplateName) return;
+
+    let derivedId = '';
+    const matchingTemplates = templates.filter(t => t.name === selectedTemplateName);
+    
+    if (selectedQpCode) {
+      // Find the specific template ID for this Name + QP Code combo
+      const exactMatch = matchingTemplates.find(t => t.qpcode && t.qpcode.split(',').map(c => c.trim()).includes(selectedQpCode));
+      if (exactMatch) {
+        derivedId = exactMatch.id;
+      }
+    }
+
+    // Fallback to the first matching template if no exact QP code match is found
+    if (!derivedId && matchingTemplates.length > 0) {
+      derivedId = matchingTemplates[0].id;
+    }
+
+    setSelectedTemplateId(derivedId);
+  }, [selectedTemplateName, selectedQpCode, templates]);
+
+  useEffect(() => {
+    if (selectedTemplateId) {
+      fetchTemplateDetails(selectedTemplateId, selectedPattern, selectedQpCode);
+    }
+  }, [selectedTemplateId, selectedPattern, selectedQpCode]);
+
+  const fetchTemplateDetails = async (id, pattern = 'A', qpcode = '') => {
     setLoading(true);
     try {
-      const data = await api.getTemplates(id, pattern);
+      const data = await api.getTemplates(id, null, pattern, qpcode);
       if (data.success) {
         setSelectedTemplate(data.template);
 
@@ -186,12 +237,13 @@ const OMRAnswerKeyConsole = () => {
       const data = await api.saveAnswerKey({
         template_id: parseInt(selectedTemplateId),
         pattern: selectedPattern,
+        qpcode: selectedQpCode,
         answers: keysList.filter(k => k.correct_option !== '')
       });
 
       if (data.success) {
         alert('Answer keys saved successfully!');
-        fetchTemplateDetails(selectedTemplateId, selectedPattern);
+        fetchTemplateDetails(selectedTemplateId, selectedPattern, selectedQpCode);
       } else {
         setError(data.message || 'Failed to save answer key.');
       }
@@ -252,34 +304,40 @@ const OMRAnswerKeyConsole = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" style={{ fontWeight: 600 }}>Select OMR Template</label>
-            <select
-              className="form-input"
-              value={selectedTemplateId}
-              onChange={(e) => {
-                setSelectedTemplateId(e.target.value);
-                setSelectedPattern('A'); // Reset to Pattern A on template change
-              }}
-            >
-              <option value="">-- Choose Template --</option>
-              {templates.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+            <SearchableDropdown
+              options={uniqueTemplateNames}
+              value={selectedTemplateName}
+              onChange={setSelectedTemplateName}
+              placeholder="-- Choose Template --"
+            />
           </div>
+
+          {selectedTemplateName && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>QP Code</label>
+              <SearchableDropdown
+                options={availableQpCodes}
+                value={selectedQpCode}
+                onChange={setSelectedQpCode}
+                placeholder="Select or enter new QP Code"
+                allowCustom={true}
+              />
+            </div>
+          )}
 
           {selectedTemplate && (
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label" style={{ fontWeight: 600 }}>Exam Paper Pattern</label>
-              <select
-                className="form-input"
+              <SearchableDropdown
+                options={[
+                  { label: "Pattern A", value: "A" },
+                  { label: "Pattern B", value: "B" },
+                  { label: "Pattern C", value: "C" },
+                  { label: "Pattern D", value: "D" }
+                ]}
                 value={selectedPattern}
-                onChange={(e) => setSelectedPattern(e.target.value)}
-              >
-                <option value="A">Pattern A</option>
-                <option value="B">Pattern B</option>
-                <option value="C">Pattern C</option>
-                <option value="D">Pattern D</option>
-              </select>
+                onChange={setSelectedPattern}
+              />
             </div>
           )}
 

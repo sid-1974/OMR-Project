@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, HelpCircle, Save, Plus, Trash2, Eye, Copy } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Upload, Plus, Trash2, Save, X, Eye, EyeOff, Maximize, Move, HelpCircle, Code, AlignCenter, AlertTriangle, CheckCircle, ChevronDown, Trash, Copy } from 'lucide-react';
 import { api, API_BASE } from '../api/api';
+import SearchableDropdown from './SearchableDropdown';
 
 const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
@@ -26,7 +27,20 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     height: 300,
     columns: 6, // 6 digits
     rows: 10,   // 0-9
-    bubbleRadius: 8
+    bubbleRadius: 8,
+    sequence: '0-9'
+  });
+
+  const [qpCodeConfig, setQpCodeConfig] = useState({
+    enabled: false,
+    x: 400,
+    y: 150,
+    width: 150,
+    height: 300,
+    columns: 4, // 4 digits
+    rows: 10,   // 0-9
+    bubbleRadius: 8,
+    sequence: '0-9'
   });
 
   const [sheetNoConfig, setSheetNoConfig] = useState({
@@ -65,9 +79,15 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
   const fileInputRef = useRef(null);
   const [imageObj, setImageObj] = useState(null);
 
+  // Hierarchy States
+  const [parents, setParents] = useState([]);
+  const [selectedParentId, setSelectedParentId] = useState('');
+  const [qpcodes, setQpcodes] = useState([]);
+  const [selectedQpCodeId, setSelectedQpCodeId] = useState('');
+
   // States for loading and editing existing templates
   const [editingTemplateId, setEditingTemplateId] = useState(null);
-  const [templates, setTemplates] = useState([]);
+  const [templateQpCode, setTemplateQpCode] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
   // Bulk generator states
@@ -77,20 +97,40 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
   const [genOptions, setGenOptions] = useState('A,B,C,D');
   const [genStartQ, setGenStartQ] = useState(1);
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
-
   const fetchTemplates = async () => {
     try {
       const res = await api.getTemplates();
       if (res.success) {
-        setTemplates(res.templates);
+        setParents(res.parents || []);
       }
     } catch (err) {
       console.error('Failed to load templates', err);
     }
   };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchQpCodes = async (parentId) => {
+    try {
+      const res = await api.getTemplates(null, parentId);
+      if (res.success) {
+        setQpcodes(res.qpcodes || []);
+      }
+    } catch (err) {
+      console.error('Failed to load qpcodes', err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedParentId) {
+      fetchQpCodes(selectedParentId);
+    } else {
+      setQpcodes([]);
+      setSelectedQpCodeId('');
+    }
+  }, [selectedParentId]);
 
   const loadImageFromUrl = (url) => {
     const img = new Image();
@@ -102,10 +142,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
   };
 
   const handleSelectTemplate = async (templateId) => {
+    setSelectedQpCodeId(templateId || '');
     if (!templateId) {
-      // Clear/Reset to default state to start a new template
+      // Clear/Reset to default state to start a new template design
       setEditingTemplateId(null);
-      setTemplateName('My OMR Template');
+      setTemplateQpCode('');
       setImageSrc(null);
       setImageObj(null);
       if (fileInputRef.current) {
@@ -125,7 +166,19 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         height: 300,
         columns: 6,
         rows: 10,
-        bubbleRadius: 8
+        bubbleRadius: 8,
+        sequence: '0-9'
+      });
+      setQpCodeConfig({
+        enabled: false,
+        x: 400,
+        y: 150,
+        width: 150,
+        height: 300,
+        columns: 4,
+        rows: 10,
+        bubbleRadius: 8,
+        sequence: '0-9'
       });
       setSheetNoConfig({
         enabled: true,
@@ -168,16 +221,23 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         const t = res.template;
         setEditingTemplateId(t.id);
         setTemplateName(t.name);
+        setTemplateQpCode(t.qpcode || '');
         setImageDimensions({ width: parseInt(t.width) || 800, height: parseInt(t.height) || 1100 });
 
         const loadedAnchors = typeof t.anchors_json === 'string' ? JSON.parse(t.anchors_json) : t.anchors_json;
         setAnchors(loadedAnchors);
 
-        const loadedRegNo = t.regno_config ? (typeof t.regno_config === 'string' ? JSON.parse(t.regno_config) : t.regno_config) : { enabled: false };
-        setRegNoConfig(loadedRegNo);
+        const defaultRegNo = { enabled: false, x: 100, y: 150, width: 250, height: 300, columns: 6, rows: 10, bubbleRadius: 8, sequence: '0-9' };
+        const parsedRegNo = (t.regno_config && t.regno_config !== 'null') ? (typeof t.regno_config === 'string' ? JSON.parse(t.regno_config) : t.regno_config) : null;
+        setRegNoConfig({ ...defaultRegNo, ...(parsedRegNo || {}) });
 
-        const loadedSheetNo = t.sheetno_config ? (typeof t.sheetno_config === 'string' ? JSON.parse(t.sheetno_config) : t.sheetno_config) : { enabled: false };
-        setSheetNoConfig(loadedSheetNo);
+        const defaultQpCode = { enabled: false, x: 400, y: 150, width: 150, height: 300, columns: 4, rows: 10, bubbleRadius: 8, sequence: '0-9' };
+        const parsedQpCode = (t.qpcode_config && t.qpcode_config !== 'null') ? (typeof t.qpcode_config === 'string' ? JSON.parse(t.qpcode_config) : t.qpcode_config) : null;
+        setQpCodeConfig({ ...defaultQpCode, ...(parsedQpCode || {}) });
+
+        const defaultSheetNo = { enabled: false, mode: 'barcode', omr_id: '', x: 450, y: 150, width: 250, height: 100, columns: 6, rows: 10, bubbleRadius: 8 };
+        const parsedSheetNo = (t.sheetno_config && t.sheetno_config !== 'null') ? (typeof t.sheetno_config === 'string' ? JSON.parse(t.sheetno_config) : t.sheetno_config) : null;
+        setSheetNoConfig({ ...defaultSheetNo, ...(parsedSheetNo || {}) });
 
         const loadedQuestions = typeof t.questions_config === 'string' ? JSON.parse(t.questions_config) : t.questions_config;
         setQuestionBlocks(loadedQuestions);
@@ -314,7 +374,12 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       const x = config.x + col * colSpacing;
       for (let row = 0; row < config.rows; row++) {
         const y = config.y + row * rowSpacing;
-        const label = config.rows === 9 ? (row + 1).toString() : row.toString();
+        let label = row.toString();
+        if (config.sequence === '1-0' && config.rows === 10) {
+          label = row === 9 ? '0' : (row + 1).toString();
+        } else if (config.rows === 9) {
+          label = (row + 1).toString();
+        }
         bubbles.push({
           label: label,
           colIndex: col,
@@ -381,10 +446,16 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     ctx.fillStyle = color;
     const handleSize = 6;
     const half = handleSize / 2;
+    // Corners
     ctx.fillRect(target.x - half, target.y - half, handleSize, handleSize);
     ctx.fillRect(target.x + target.width - half, target.y - half, handleSize, handleSize);
     ctx.fillRect(target.x - half, target.y + target.height - half, handleSize, handleSize);
     ctx.fillRect(target.x + target.width - half, target.y + target.height - half, handleSize, handleSize);
+    // Midpoints
+    ctx.fillRect(target.x + target.width / 2 - half, target.y - half, handleSize, handleSize); // Top
+    ctx.fillRect(target.x + target.width / 2 - half, target.y + target.height - half, handleSize, handleSize); // Bottom
+    ctx.fillRect(target.x - half, target.y + target.height / 2 - half, handleSize, handleSize); // Left
+    ctx.fillRect(target.x + target.width - half, target.y + target.height / 2 - half, handleSize, handleSize); // Right
   };
 
   // Draw the image and overlays on the canvas
@@ -432,6 +503,28 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
       if (activeTab === 'regno') {
         drawResizeHandles(ctx, regNoConfig, '#06b6d4');
+      }
+    }
+
+    // Draw QP Code Grid (Amber circles)
+    if (qpCodeConfig.enabled && (activeTab === 'all' || activeTab === 'qpcode')) {
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.5;
+
+      // Draw outer bounding box
+      ctx.strokeRect(qpCodeConfig.x, qpCodeConfig.y, qpCodeConfig.width, qpCodeConfig.height);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+      ctx.fillText('QP Code Grid', qpCodeConfig.x, qpCodeConfig.y - 6);
+
+      const bubbles = getRegNoBubbles(qpCodeConfig);
+      bubbles.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+
+      if (activeTab === 'qpcode') {
+        drawResizeHandles(ctx, qpCodeConfig, '#f59e0b');
       }
     }
 
@@ -487,7 +580,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
   useEffect(() => {
     drawCanvas();
-  }, [imageObj, anchors, regNoConfig, sheetNoConfig, questionBlocks, activeTab, activeQBlockId]);
+  }, [imageObj, anchors, regNoConfig, qpCodeConfig, sheetNoConfig, questionBlocks, activeTab, activeQBlockId]);
 
   // Update cursor dynamically based on hover coordinates
   const handleCanvasMouseMove = (e) => {
@@ -500,6 +593,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
     let target = null;
     if (activeTab === 'regno' && regNoConfig.enabled) target = regNoConfig;
+    else if (activeTab === 'qpcode' && qpCodeConfig.enabled) target = qpCodeConfig;
     else if (activeTab === 'sheetno' && sheetNoConfig.enabled && sheetNoConfig.mode === 'barcode') target = sheetNoConfig;
     else if (activeTab === 'questions' && activeQBlock) target = activeQBlock;
 
@@ -516,10 +610,19 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     const overBL = isNear(x, y, target.x, target.y + target.height);
     const overBR = isNear(x, y, target.x + target.width, target.y + target.height);
 
+    const overTop = isNear(x, y, target.x + target.width / 2, target.y);
+    const overBottom = isNear(x, y, target.x + target.width / 2, target.y + target.height);
+    const overLeft = isNear(x, y, target.x, target.y + target.height / 2);
+    const overRight = isNear(x, y, target.x + target.width, target.y + target.height / 2);
+
     if (overTL || overBR) {
       canvas.style.cursor = 'nwse-resize';
     } else if (overTR || overBL) {
       canvas.style.cursor = 'nesw-resize';
+    } else if (overTop || overBottom) {
+      canvas.style.cursor = 'ns-resize';
+    } else if (overLeft || overRight) {
+      canvas.style.cursor = 'ew-resize';
     } else if (x >= target.x && x <= target.x + target.width && y >= target.y && y <= target.y + target.height) {
       canvas.style.cursor = 'move';
     } else {
@@ -572,6 +675,9 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     if (activeTab === 'regno' && regNoConfig.enabled) {
       target = regNoConfig;
       setTarget = setRegNoConfig;
+    } else if (activeTab === 'qpcode' && qpCodeConfig.enabled) {
+      target = qpCodeConfig;
+      setTarget = setQpCodeConfig;
     } else if (activeTab === 'sheetno' && sheetNoConfig.enabled && sheetNoConfig.mode === 'barcode') {
       target = sheetNoConfig;
       setTarget = setSheetNoConfig;
@@ -596,6 +702,10 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     else if (isNear(clickX, clickY, target.x + target.width, target.y)) activeCorner = 'topRight';
     else if (isNear(clickX, clickY, target.x, target.y + target.height)) activeCorner = 'bottomLeft';
     else if (isNear(clickX, clickY, target.x + target.width, target.y + target.height)) activeCorner = 'bottomRight';
+    else if (isNear(clickX, clickY, target.x + target.width / 2, target.y)) activeCorner = 'top';
+    else if (isNear(clickX, clickY, target.x + target.width / 2, target.y + target.height)) activeCorner = 'bottom';
+    else if (isNear(clickX, clickY, target.x, target.y + target.height / 2)) activeCorner = 'left';
+    else if (isNear(clickX, clickY, target.x + target.width, target.y + target.height / 2)) activeCorner = 'right';
 
     const isInside = clickX >= target.x && clickX <= target.x + target.width &&
       clickY >= target.y && clickY <= target.y + target.height;
@@ -634,6 +744,16 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         } else if (activeCorner === 'bottomRight') {
           newW = Math.max(30, curX - startX);
           newH = Math.max(30, curY - startY);
+        } else if (activeCorner === 'top') {
+          newY = Math.min(bottomY - 30, curY);
+          newH = bottomY - newY;
+        } else if (activeCorner === 'bottom') {
+          newH = Math.max(30, curY - startY);
+        } else if (activeCorner === 'left') {
+          newX = Math.min(rightX - 30, curX);
+          newW = rightX - newX;
+        } else if (activeCorner === 'right') {
+          newW = Math.max(30, curX - startX);
         }
 
         setTarget(prev => ({
@@ -795,7 +915,12 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
       formData.append('anchors_json', JSON.stringify(anchors));
       formData.append('regno_config', regNoConfig.enabled ? JSON.stringify(regNoConfig) : 'null');
+      formData.append('qpcode_config', qpCodeConfig.enabled ? JSON.stringify(qpCodeConfig) : 'null');
       formData.append('sheetno_config', sheetNoConfig.enabled ? JSON.stringify(sheetNoConfig) : 'null');
+
+      if (templateQpCode) {
+        formData.append('qpcode', templateQpCode);
+      }
 
       // Calculate bubble coordinates and bundle into questions config
       const questionsData = questionBlocks.map(block => ({
@@ -809,7 +934,14 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       if (resData.success) {
         alert(editingTemplateId ? 'Template updated successfully!' : 'Template saved successfully!');
         setEditingTemplateId(resData.template_id);
-        fetchTemplates();
+
+        await fetchTemplates();
+        if (resData.parent_id) {
+          setSelectedParentId(resData.parent_id);
+          await fetchQpCodes(resData.parent_id);
+          setSelectedQpCodeId(resData.template_id);
+        }
+
         if (onTemplateSaved) {
           onTemplateSaved(resData.template_id);
         }
@@ -846,17 +978,23 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Select Template to Edit</label>
-          <select
-            className="form-input"
-            value={editingTemplateId || ''}
-            onChange={(e) => handleSelectTemplate(e.target.value ? parseInt(e.target.value) : null)}
-          >
-            <option value="">-- Create New Template --</option>
-            {templates.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+          <label className="form-label">Template Group</label>
+          <SearchableDropdown
+            options={[{ label: "-- Create New Template --", value: "" }, ...parents.map(p => ({ label: p.name, value: p.id.toString() }))]}
+            value={selectedParentId || ''}
+            onChange={(val) => {
+              setSelectedParentId(val);
+              setEditingTemplateId(null);
+              setSelectedQpCodeId('');
+              if (val) {
+                const p = parents.find(x => x.id.toString() === val);
+                if (p) setTemplateName(p.name);
+              } else {
+                setTemplateName('');
+              }
+            }}
+            placeholder="-- Create New Template --"
+          />
         </div>
 
         <div className="form-group">
@@ -866,6 +1004,34 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
             className="form-input"
             value={templateName}
             onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="e.g. JSS 1st Sem OMR"
+          />
+        </div>
+
+        {/* QP Code Dropdown (Only show if a parent is selected) */}
+        {selectedParentId && (
+          <div className="form-group">
+            <label className="form-label">QP Code (Design)</label>
+            <SearchableDropdown
+              options={[{ label: "-- Create New QPCode Design --", value: "" }, ...qpcodes.map(q => ({ label: q.qpcode || `Design #${q.id}`, value: q.id.toString() }))]}
+              value={selectedQpCodeId || ''}
+              onChange={(val) => {
+                setSelectedQpCodeId(val);
+                handleSelectTemplate(val ? parseInt(val) : null);
+              }}
+              placeholder="-- Create New QPCode Design --"
+            />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">QP Code Value</label>
+          <input
+            type="text"
+            className="form-input"
+            value={templateQpCode}
+            onChange={(e) => setTemplateQpCode(e.target.value)}
+            placeholder="e.g. 001"
           />
         </div>
 
@@ -937,6 +1103,12 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                 style={{ flex: 1, padding: '6px', fontSize: '0.8rem', background: activeTab === 'regno' ? 'var(--bg-tertiary)' : 'transparent', color: activeTab === 'regno' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 0, borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
               >
                 Reg No
+              </button>
+              <button
+                onClick={() => setActiveTab('qpcode')}
+                style={{ flex: 1, padding: '6px', fontSize: '0.8rem', background: activeTab === 'qpcode' ? 'var(--bg-tertiary)' : 'transparent', color: activeTab === 'qpcode' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 0, borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                QP Code
               </button>
               <button
                 onClick={() => setActiveTab('sheetno')}
@@ -1012,6 +1184,72 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Radius</label>
                           <input type="number" className="form-input" value={regNoConfig.bubbleRadius} onChange={(e) => setRegNoConfig({ ...regNoConfig, bubbleRadius: parseInt(e.target.value) || 1 })} />
                         </div>
+                        {regNoConfig.rows === 10 && (
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem' }}>Digit Sequence</label>
+                            <SearchableDropdown
+                              options={[
+                                { label: "0 to 9 (0, 1, 2... 9)", value: "0-9" },
+                                { label: "1 to 0 (1, 2, 3... 0)", value: "1-0" }
+                              ]}
+                              value={regNoConfig.sequence || '0-9'}
+                              onChange={(val) => setRegNoConfig({ ...regNoConfig, sequence: val })}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* QP Code Grid Editor */}
+              {activeTab === 'qpcode' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <input type="checkbox" id="qpcode-enabled" checked={qpCodeConfig.enabled} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, enabled: e.target.checked })} />
+                    <label htmlFor="qpcode-enabled" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Enable QP Code Grid</label>
+                  </div>
+                  {qpCodeConfig.enabled && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Grid X</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.x} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, x: parseInt(e.target.value) || 0 })} />
+                        </div>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Grid Y</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.y} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, y: parseInt(e.target.value) || 0 })} />
+                        </div>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Width</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.width} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, width: parseInt(e.target.value) || 0 })} />
+                        </div>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Height</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.height} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, height: parseInt(e.target.value) || 0 })} />
+                        </div>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Digits (Cols)</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.columns} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, columns: parseInt(e.target.value) || 1 })} />
+                        </div>
+                        <div>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Radius</label>
+                          <input type="number" className="form-input" value={qpCodeConfig.bubbleRadius} onChange={(e) => setQpCodeConfig({ ...qpCodeConfig, bubbleRadius: parseInt(e.target.value) || 1 })} />
+                        </div>
+                        {qpCodeConfig.rows === 10 && (
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem' }}>Digit Sequence</label>
+                            <SearchableDropdown
+                              options={[
+                                { label: "0 to 9 (0, 1, 2... 9)", value: "0-9" },
+                                { label: "1 to 0 (1, 2, 3... 0)", value: "1-0" }
+                              ]}
+                              value={qpCodeConfig.sequence || '0-9'}
+                              onChange={(val) => setQpCodeConfig({ ...qpCodeConfig, sequence: val })}
+                            />
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -1029,14 +1267,14 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                     <>
                       <div>
                         <label className="form-label" style={{ fontSize: '0.8rem' }}>OMR ID Input Mode</label>
-                        <select
-                          className="form-input"
+                        <SearchableDropdown
+                          options={[
+                            { label: "1. Barcode / QR Code", value: "barcode" },
+                            { label: "2. Number Only (Manual Entry)", value: "manual_entry" }
+                          ]}
                           value={sheetNoConfig.mode || 'barcode'}
-                          onChange={(e) => setSheetNoConfig({ ...sheetNoConfig, mode: e.target.value })}
-                        >
-                          <option value="barcode">1. Barcode / QR Code</option>
-                          <option value="manual_entry">2. Number Only (Manual Entry)</option>
-                        </select>
+                          onChange={(val) => setSheetNoConfig({ ...sheetNoConfig, mode: val })}
+                        />
                       </div>
 
                       {sheetNoConfig.mode === 'barcode' && (

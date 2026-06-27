@@ -93,6 +93,70 @@ function createOMRTablesIfNotExist($pdo)
         // Ignore if table does not exist
     }
 
+    // Migration: add qpcode_config column to omr_templates if missing
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `omr_templates` LIKE 'qpcode_config'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `omr_templates` ADD COLUMN `qpcode_config` JSON DEFAULT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
+    // Migration: add qpcode column to answer_keys if missing
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `answer_keys` LIKE 'qpcode'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `answer_keys` ADD COLUMN `qpcode` VARCHAR(50) DEFAULT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
+    // Migration: add qpcode column to scanned_sheets if missing
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `scanned_sheets` LIKE 'qpcode'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `scanned_sheets` ADD COLUMN `qpcode` VARCHAR(50) DEFAULT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
+    // Migration: add qpcode column to evaluation_results if missing
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `evaluation_results` LIKE 'qpcode'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `evaluation_results` ADD COLUMN `qpcode` VARCHAR(50) DEFAULT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
+    // Migration: rename scanned_sheet_id to omr_id in student_responses
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `student_responses` LIKE 'scanned_sheet_id'");
+        if ($stmt->fetch()) {
+            // Attempt to drop standard foreign key names before changing column
+            try { $pdo->exec("ALTER TABLE `student_responses` DROP FOREIGN KEY `student_responses_ibfk_1`"); } catch (\Exception $e) {}
+            $pdo->exec("ALTER TABLE `student_responses` CHANGE `scanned_sheet_id` `omr_id` VARCHAR(50) NOT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
+    // Migration: rename scanned_sheet_id to omr_id in evaluation_results
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `evaluation_results` LIKE 'scanned_sheet_id'");
+        if ($stmt->fetch()) {
+            // Attempt to drop standard foreign key names before changing column
+            try { $pdo->exec("ALTER TABLE `evaluation_results` DROP FOREIGN KEY `evaluation_results_ibfk_1`"); } catch (\Exception $e) {}
+            $pdo->exec("ALTER TABLE `evaluation_results` CHANGE `scanned_sheet_id` `omr_id` VARCHAR(50) NOT NULL");
+        }
+    } catch (\PDOException $e) {
+        // Ignore if table does not exist
+    }
+
     // OMR Templates
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `omr_templates` (
@@ -104,6 +168,7 @@ function createOMRTablesIfNotExist($pdo)
           `anchors_json` JSON NOT NULL,
           `regno_config` JSON DEFAULT NULL,
           `sheetno_config` JSON DEFAULT NULL,
+          `qpcode_config` JSON DEFAULT NULL,
           `questions_config` JSON NOT NULL,
           `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -115,6 +180,7 @@ function createOMRTablesIfNotExist($pdo)
           `id` INT AUTO_INCREMENT PRIMARY KEY,
           `template_id` INT NOT NULL,
           `pattern` VARCHAR(10) NOT NULL DEFAULT 'A',
+          `qpcode` VARCHAR(50) DEFAULT NULL,
           `question_number` INT NOT NULL,
           `correct_option` CHAR(5) NOT NULL,
           FOREIGN KEY (`template_id`) REFERENCES `omr_templates`(`id`) ON DELETE CASCADE
@@ -127,6 +193,7 @@ function createOMRTablesIfNotExist($pdo)
           `id` INT AUTO_INCREMENT PRIMARY KEY,
           `template_id` INT NOT NULL,
           `pattern` VARCHAR(10) NOT NULL DEFAULT 'A',
+          `qpcode` VARCHAR(50) DEFAULT NULL,
           `omr_id` VARCHAR(50) DEFAULT NULL,
           `student_regno` VARCHAR(50) DEFAULT NULL,
           `raw_image_path` VARCHAR(255) NOT NULL,
@@ -141,10 +208,9 @@ function createOMRTablesIfNotExist($pdo)
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `student_responses` (
           `id` INT AUTO_INCREMENT PRIMARY KEY,
-          `scanned_sheet_id` INT NOT NULL,
+          `omr_id` VARCHAR(50) NOT NULL,
           `question_number` INT NOT NULL,
-          `selected_option` VARCHAR(5) DEFAULT NULL,
-          FOREIGN KEY (`scanned_sheet_id`) REFERENCES `scanned_sheets`(`id`) ON DELETE CASCADE
+          `selected_option` VARCHAR(5) DEFAULT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 
@@ -152,15 +218,15 @@ function createOMRTablesIfNotExist($pdo)
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `evaluation_results` (
           `id` INT AUTO_INCREMENT PRIMARY KEY,
-          `scanned_sheet_id` INT NOT NULL,
+          `omr_id` VARCHAR(50) NOT NULL,
+          `qpcode` VARCHAR(50) DEFAULT NULL,
           `student_regno` VARCHAR(50) NOT NULL,
           `total_questions` INT NOT NULL,
           `correct_answers` INT NOT NULL,
           `wrong_answers` INT NOT NULL,
           `blank_answers` INT NOT NULL,
           `score` DECIMAL(5,2) NOT NULL,
-          `evaluated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (`scanned_sheet_id`) REFERENCES `scanned_sheets`(`id`) ON DELETE CASCADE
+          `evaluated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ");
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Download, BarChart2, CheckCircle, AlertTriangle, HelpCircle, Eye } from 'lucide-react';
 import { api, API_BASE } from '../api/api';
+import SearchableDropdown from './SearchableDropdown';
 
 const OMRResultsDashboard = () => {
 
@@ -9,6 +10,14 @@ const OMRResultsDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resultsData, setResultsData] = useState(null);
+  
+  // Pagination & Filters
+  const [availableQpCodes, setAvailableQpCodes] = useState([]);
+  const [selectedQpCode, setSelectedQpCode] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   
   // Modal for detailed student view
   const [viewingStudent, setViewingStudent] = useState(null);
@@ -32,17 +41,38 @@ const OMRResultsDashboard = () => {
   };
 
   useEffect(() => {
-    if (!selectedTemplateId) return;
-    fetchEvaluationResults(selectedTemplateId);
+    if (selectedTemplateId) {
+      fetchQpCodes(selectedTemplateId);
+    }
   }, [selectedTemplateId]);
 
-  const fetchEvaluationResults = async (templateId) => {
+  useEffect(() => {
+    if (!selectedTemplateId) return;
+    fetchEvaluationResults(selectedTemplateId, page, limit, selectedQpCode);
+  }, [selectedTemplateId, page, limit, selectedQpCode]);
+
+  const fetchQpCodes = async (templateId) => {
+    try {
+      const data = await api.getQpCodes(templateId);
+      if (data.success) {
+        setAvailableQpCodes(data.qpcodes || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchEvaluationResults = async (templateId, p, l, qpc) => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.compare(templateId);
+      const data = await api.compare(templateId, p, l, qpc);
       if (data.success) {
         setResultsData(data);
+        if (data.pagination) {
+          setTotalCount(data.pagination.total);
+          setTotalPages(data.pagination.total_pages);
+        }
       } else {
         setResultsData(null);
         setError(data.message || 'No evaluation results found.');
@@ -56,25 +86,29 @@ const OMRResultsDashboard = () => {
   };
 
   // Export Results Table to CSV
-  const handleExportCSV = () => {
-    if (!resultsData || resultsData.results.length === 0) return;
-    
-    // Headers
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Student Reg No,OMR Sheet Number,Pattern,Total Questions,Correct,Wrong,Blank,Score\r\n";
-    
-    // Data rows
-    resultsData.results.forEach(row => {
-      csvContent += `${row.student_regno},${row.sheet_number},${row.pattern || 'A'},${row.total_questions},${row.correct_answers},${row.wrong_answers},${row.blank_answers},${row.score}\r\n`;
-    });
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `OMR_Evaluation_Results_Template_${selectedTemplateId}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportCSV = async () => {
+    try {
+      // Fetch all data for export, ignoring pagination
+      const data = await api.compare(selectedTemplateId, 1, 100000, selectedQpCode);
+      if (data.success && data.results.length > 0) {
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Student Reg No,OMR Sheet Number,Pattern,QP Code,Total Questions,Correct,Wrong,Blank,Score\r\n";
+        
+        data.results.forEach(row => {
+          csvContent += `${row.student_regno},${row.sheet_number},${row.pattern || 'A'},${row.qpcode || ''},${row.total_questions},${row.correct_answers},${row.wrong_answers},${row.blank_answers},${row.score}\r\n`;
+        });
+        
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `OMR_Evaluation_Results_Template_${selectedTemplateId}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      alert("Error exporting: " + err.message);
+    }
   };
 
   // Calculate statistics
@@ -110,19 +144,35 @@ const OMRResultsDashboard = () => {
       
       {/* Selection & Export Banner */}
       <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <label className="form-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>OMR Template:</label>
-          <select 
-            className="form-input" 
-            style={{ width: '250px' }}
-            value={selectedTemplateId} 
-            onChange={(e) => setSelectedTemplateId(e.target.value)}
-          >
-            <option value="">-- Select Template --</option>
-            {templates.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <label className="form-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>OMR Template:</label>
+            <SearchableDropdown
+              options={templates.map(t => ({ label: t.name, value: t.id.toString() }))}
+              value={selectedTemplateId}
+              onChange={(val) => {
+                setSelectedTemplateId(val);
+                setPage(1);
+                setSelectedQpCode('');
+              }}
+              placeholder="-- Select Template --"
+              style={{ width: '250px' }}
+            />
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <label className="form-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>QP Code:</label>
+            <SearchableDropdown
+              options={[{ label: "All Codes", value: "" }, ...availableQpCodes]}
+              value={selectedQpCode}
+              onChange={(val) => {
+                setSelectedQpCode(val);
+                setPage(1);
+              }}
+              placeholder="All Codes"
+              style={{ width: '150px' }}
+            />
+          </div>
         </div>
 
         {resultsData && resultsData.results.length > 0 && (
@@ -245,6 +295,53 @@ const OMRResultsDashboard = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+          
+          {/* Pagination Controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Rows per page:</span>
+              <SearchableDropdown
+                options={[
+                  { label: "10", value: 10 },
+                  { label: "20", value: 20 },
+                  { label: "50", value: 50 },
+                  { label: "100", value: 100 },
+                  { label: "All", value: 10000 }
+                ]}
+                value={limit}
+                onChange={(val) => {
+                  setLimit(Number(val));
+                  setPage(1);
+                }}
+                style={{ width: '100px', fontSize: '0.85rem' }}
+                className="form-input"
+              />
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Showing {totalCount === 0 ? 0 : (page - 1) * limit + 1} to {Math.min(page * limit, totalCount)} of {totalCount}
+              </span>
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 10px', fontSize: '0.85rem' }}
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                >
+                  Prev
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '4px 10px', fontSize: '0.85rem' }}
+                  disabled={page >= totalPages || loading}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -43,7 +43,15 @@ const solveGaussian = (A, B) => {
 };
 
 // BFS Blob Finder in a Search region of the canvas
-const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorner, expectedPt = null) => {
+const findAnchorInRegion = (
+  ctx,
+  startX,
+  startY,
+  searchW,
+  searchH,
+  expectedCorner,
+  expectedPt = null,
+) => {
   const imgData = ctx.getImageData(startX, startY, searchW, searchH);
   const data = imgData.data;
   const w = imgData.width;
@@ -60,7 +68,7 @@ const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorne
     sumGray += gray[i];
   }
   const avgGray = sumGray / (w * h || 1);
-  
+
   // Dynamic threshold: e.g. 70% of average gray, max 110
   const thresh = Math.min(110, avgGray * 0.7);
 
@@ -74,8 +82,10 @@ const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorne
         let sumX = 0;
         let sumY = 0;
         let count = 0;
-        let minX = x, maxX = x;
-        let minY = y, maxY = y;
+        let minX = x,
+          maxX = x;
+        let minY = y,
+          maxY = y;
 
         const queue = [idx];
         visited[idx] = 1;
@@ -96,12 +106,7 @@ const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorne
           if (cy > maxY) maxY = cy;
 
           // Check 4-neighbors
-          const neighbors = [
-            cur - 1,
-            cur + 1,
-            cur - w,
-            cur + w
-          ];
+          const neighbors = [cur - 1, cur + 1, cur - w, cur + w];
 
           for (const n of neighbors) {
             const nx = n % w;
@@ -123,15 +128,21 @@ const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorne
         // In a ~1000px wide image, search region is around 250-300px.
         // Anchors are typically around 8px to 80px wide/high.
         // Aspect ratio should be close to 1.
-        if (bw >= 8 && bw <= 80 && bh >= 8 && bh <= 80 &&
-            aspectRatio >= 0.55 && aspectRatio <= 1.8 &&
-            density >= 0.45) {
+        if (
+          bw >= 8 &&
+          bw <= 80 &&
+          bh >= 8 &&
+          bh <= 80 &&
+          aspectRatio >= 0.55 &&
+          aspectRatio <= 1.8 &&
+          density >= 0.45
+        ) {
           components.push({
             cx: startX + sumX / count,
             cy: startY + sumY / count,
             width: bw,
             height: bh,
-            size: count
+            size: count,
           });
         }
       }
@@ -143,16 +154,16 @@ const findAnchorInRegion = (ctx, startX, startY, searchW, searchH, expectedCorne
   let best = null;
   let minDistance = Infinity;
 
-  components.forEach(c => {
+  components.forEach((c) => {
     let targetX = 0;
     let targetY = 0;
     if (expectedPt) {
       targetX = expectedPt.x - startX;
       targetY = expectedPt.y - startY;
     } else {
-      if (expectedCorner === 'topRight') targetX = w;
-      else if (expectedCorner === 'bottomLeft') targetY = h;
-      else if (expectedCorner === 'bottomRight') {
+      if (expectedCorner === "topRight") targetX = w;
+      else if (expectedCorner === "bottomLeft") targetY = h;
+      else if (expectedCorner === "bottomRight") {
         targetX = w;
         targetY = h;
       }
@@ -184,15 +195,15 @@ export const detectAnchors = async (canvasElement, template = null) => {
 
   if (Math.max(originalWidth, originalHeight) > maxDim) {
     scale = maxDim / Math.max(originalWidth, originalHeight);
-    const tempCanvas = document.createElement('canvas');
+    const tempCanvas = document.createElement("canvas");
     tempCanvas.width = Math.round(originalWidth * scale);
     tempCanvas.height = Math.round(originalHeight * scale);
-    const tempCtx = tempCanvas.getContext('2d');
+    const tempCtx = tempCanvas.getContext("2d");
     tempCtx.drawImage(canvasElement, 0, 0, tempCanvas.width, tempCanvas.height);
     processingCanvas = tempCanvas;
   }
 
-  const ctx = processingCanvas.getContext('2d');
+  const ctx = processingCanvas.getContext("2d");
   const w = processingCanvas.width;
   const h = processingCanvas.height;
 
@@ -202,65 +213,110 @@ export const detectAnchors = async (canvasElement, template = null) => {
     const tW = template.width || 800;
     const tH = template.height || 1100;
     let templateAnchors = template.anchors_json;
-    if (typeof templateAnchors === 'string') templateAnchors = JSON.parse(templateAnchors);
-    
+    if (typeof templateAnchors === "string")
+      templateAnchors = JSON.parse(templateAnchors);
+
     if (templateAnchors) {
       scaledExpected = {
         topLeft: {
           x: (templateAnchors.topLeft.x / tW) * w,
-          y: (templateAnchors.topLeft.y / tH) * h
+          y: (templateAnchors.topLeft.y / tH) * h,
         },
         topRight: {
           x: (templateAnchors.topRight.x / tW) * w,
-          y: (templateAnchors.topRight.y / tH) * h
+          y: (templateAnchors.topRight.y / tH) * h,
         },
         bottomLeft: {
           x: (templateAnchors.bottomLeft.x / tW) * w,
-          y: (templateAnchors.bottomLeft.y / tH) * h
+          y: (templateAnchors.bottomLeft.y / tH) * h,
         },
         bottomRight: {
           x: (templateAnchors.bottomRight.x / tW) * w,
-          y: (templateAnchors.bottomRight.y / tH) * h
-        }
+          y: (templateAnchors.bottomRight.y / tH) * h,
+        },
       };
     }
   }
 
   // Quadrant bounds (e.g. search within 30% of edges)
-  const searchW = Math.round(w * 0.30);
-  const searchH = Math.round(h * 0.30);
+  const searchW = Math.round(w * 0.3);
+  const searchH = Math.round(h * 0.3);
 
-  const tl = findAnchorInRegion(ctx, 5, 5, searchW, searchH, 'topLeft', scaledExpected?.topLeft);
-  const tr = findAnchorInRegion(ctx, w - searchW - 5, 5, searchW, searchH, 'topRight', scaledExpected?.topRight);
-  const bl = findAnchorInRegion(ctx, 5, h - searchH - 5, searchW, searchH, 'bottomLeft', scaledExpected?.bottomLeft);
-  const br = findAnchorInRegion(ctx, w - searchW - 5, h - searchH - 5, searchW, searchH, 'bottomRight', scaledExpected?.bottomRight);
+  const tl = findAnchorInRegion(
+    ctx,
+    5,
+    5,
+    searchW,
+    searchH,
+    "topLeft",
+    scaledExpected?.topLeft,
+  );
+  const tr = findAnchorInRegion(
+    ctx,
+    w - searchW - 5,
+    5,
+    searchW,
+    searchH,
+    "topRight",
+    scaledExpected?.topRight,
+  );
+  const bl = findAnchorInRegion(
+    ctx,
+    5,
+    h - searchH - 5,
+    searchW,
+    searchH,
+    "bottomLeft",
+    scaledExpected?.bottomLeft,
+  );
+  const br = findAnchorInRegion(
+    ctx,
+    w - searchW - 5,
+    h - searchH - 5,
+    searchW,
+    searchH,
+    "bottomRight",
+    scaledExpected?.bottomRight,
+  );
 
   const getFallback = (cornerName) => {
     if (template) {
       const tW = template.width || 800;
       const tH = template.height || 1100;
       let templateAnchors = template.anchors_json;
-      if (typeof templateAnchors === 'string') templateAnchors = JSON.parse(templateAnchors);
+      if (typeof templateAnchors === "string")
+        templateAnchors = JSON.parse(templateAnchors);
       if (templateAnchors && templateAnchors[cornerName]) {
         return {
           x: (templateAnchors[cornerName].x / tW) * originalWidth,
-          y: (templateAnchors[cornerName].y / tH) * originalHeight
+          y: (templateAnchors[cornerName].y / tH) * originalHeight,
         };
       }
     }
     // Default fallback coordinates if no template or expected point exists
-    if (cornerName === 'topLeft') return { x: originalWidth * 0.05, y: originalHeight * 0.05 };
-    if (cornerName === 'topRight') return { x: originalWidth * 0.95, y: originalHeight * 0.05 };
-    if (cornerName === 'bottomLeft') return { x: originalWidth * 0.05, y: originalHeight * 0.95 };
+    if (cornerName === "topLeft")
+      return { x: originalWidth * 0.05, y: originalHeight * 0.05 };
+    if (cornerName === "topRight")
+      return { x: originalWidth * 0.95, y: originalHeight * 0.05 };
+    if (cornerName === "bottomLeft")
+      return { x: originalWidth * 0.05, y: originalHeight * 0.95 };
     return { x: originalWidth * 0.95, y: originalHeight * 0.95 };
   };
 
   const result = {
-    topLeft: tl ? { x: tl.cx / scale, y: tl.cy / scale } : getFallback('topLeft'),
-    topRight: tr ? { x: tr.cx / scale, y: tr.cy / scale } : getFallback('topRight'),
-    bottomLeft: bl ? { x: bl.cx / scale, y: bl.cy / scale } : getFallback('bottomLeft'),
-    bottomRight: br ? { x: br.cx / scale, y: br.cy / scale } : getFallback('bottomRight'),
-    autoDetected: !!(tl && tr && bl && br)
+    topLeft: tl
+      ? { x: tl.cx / scale, y: tl.cy / scale }
+      : getFallback("topLeft"),
+    topRight: tr
+      ? { x: tr.cx / scale, y: tr.cy / scale }
+      : getFallback("topRight"),
+    bottomLeft: bl
+      ? { x: bl.cx / scale, y: bl.cy / scale }
+      : getFallback("bottomLeft"),
+    bottomRight: br
+      ? { x: br.cx / scale, y: br.cy / scale }
+      : getFallback("bottomRight"),
+    autoDetected: !!(tl && tr && bl && br),
   };
 
   return result;
@@ -270,9 +326,14 @@ export const detectAnchors = async (canvasElement, template = null) => {
  * Warps the perspective of the source canvas so that it is aligned to the target dimensions
  * using the 4 anchor points. Outputs the result to the destination canvas.
  */
-export const warpPerspective = async (sourceCanvas, destCanvas, sourceAnchors, targetDimensions) => {
-  const srcCtx = sourceCanvas.getContext('2d');
-  const dstCtx = destCanvas.getContext('2d');
+export const warpPerspective = async (
+  sourceCanvas,
+  destCanvas,
+  sourceAnchors,
+  targetDimensions,
+) => {
+  const srcCtx = sourceCanvas.getContext("2d");
+  const dstCtx = destCanvas.getContext("2d");
 
   const srcW = sourceCanvas.width;
   const srcH = sourceCanvas.height;
@@ -280,17 +341,29 @@ export const warpPerspective = async (sourceCanvas, destCanvas, sourceAnchors, t
   const dstH = targetDimensions.height;
 
   const dstPts = [
-    { x: targetDimensions.anchors.topLeft.x, y: targetDimensions.anchors.topLeft.y },
-    { x: targetDimensions.anchors.topRight.x, y: targetDimensions.anchors.topRight.y },
-    { x: targetDimensions.anchors.bottomRight.x, y: targetDimensions.anchors.bottomRight.y },
-    { x: targetDimensions.anchors.bottomLeft.x, y: targetDimensions.anchors.bottomLeft.y }
+    {
+      x: targetDimensions.anchors.topLeft.x,
+      y: targetDimensions.anchors.topLeft.y,
+    },
+    {
+      x: targetDimensions.anchors.topRight.x,
+      y: targetDimensions.anchors.topRight.y,
+    },
+    {
+      x: targetDimensions.anchors.bottomRight.x,
+      y: targetDimensions.anchors.bottomRight.y,
+    },
+    {
+      x: targetDimensions.anchors.bottomLeft.x,
+      y: targetDimensions.anchors.bottomLeft.y,
+    },
   ];
 
   const srcPts = [
     { x: sourceAnchors.topLeft.x, y: sourceAnchors.topLeft.y },
     { x: sourceAnchors.topRight.x, y: sourceAnchors.topRight.y },
     { x: sourceAnchors.bottomRight.x, y: sourceAnchors.bottomRight.y },
-    { x: sourceAnchors.bottomLeft.x, y: sourceAnchors.bottomLeft.y }
+    { x: sourceAnchors.bottomLeft.x, y: sourceAnchors.bottomLeft.y },
   ];
 
   const A = [];
@@ -342,10 +415,11 @@ export const warpPerspective = async (sourceCanvas, destCanvas, sourceAnchors, t
         const idx11 = (sy1 * srcW + sx1) * 4;
 
         for (let c = 0; c < 4; c++) {
-          const val = (1 - dx) * (1 - dy) * srcData[idx00 + c] +
-                      dx * (1 - dy) * srcData[idx10 + c] +
-                      (1 - dx) * dy * srcData[idx01 + c] +
-                      dx * dy * srcData[idx11 + c];
+          const val =
+            (1 - dx) * (1 - dy) * srcData[idx00 + c] +
+            dx * (1 - dy) * srcData[idx10 + c] +
+            (1 - dx) * dy * srcData[idx01 + c] +
+            dx * dy * srcData[idx11 + c];
           dstData[dstIdx + c] = Math.round(val);
         }
       } else {
@@ -364,27 +438,44 @@ export const warpPerspective = async (sourceCanvas, destCanvas, sourceAnchors, t
  * Analyzes pixel darkness within a specific bounding box (bubble) on a canvas.
  * Returns the fill percentage (0 to 1).
  */
-export const analyzeBubbleFill = (imgDataOrCtx, x, y, radius, thresholdValue = 127) => {
+export const analyzeBubbleFill = (
+  imgDataOrCtx,
+  x,
+  y,
+  radius,
+  thresholdValue = 127,
+) => {
   const size = Math.ceil(radius * 2);
   const startX = Math.round(x - radius);
   const startY = Math.round(y - radius);
-  
+
   let data;
   let imgWidth;
   let imgHeight;
-  
-  const isImageData = imgDataOrCtx && imgDataOrCtx.data && typeof imgDataOrCtx.width === 'number';
-  
+
+  const isImageData =
+    imgDataOrCtx && imgDataOrCtx.data && typeof imgDataOrCtx.width === "number";
+
   if (isImageData) {
     data = imgDataOrCtx.data;
     imgWidth = imgDataOrCtx.width;
     imgHeight = imgDataOrCtx.height;
-    if (startX < 0 || startY < 0 || startX + size > imgWidth || startY + size > imgHeight) {
+    if (
+      startX < 0 ||
+      startY < 0 ||
+      startX + size > imgWidth ||
+      startY + size > imgHeight
+    ) {
       return 0; // Out of bounds
     }
   } else {
     const ctx = imgDataOrCtx;
-    if (startX < 0 || startY < 0 || startX + size > ctx.canvas.width || startY + size > ctx.canvas.height) {
+    if (
+      startX < 0 ||
+      startY < 0 ||
+      startX + size > ctx.canvas.width ||
+      startY + size > ctx.canvas.height
+    ) {
       return 0; // Out of bounds
     }
     const imgData = ctx.getImageData(startX, startY, size, size);
@@ -392,37 +483,37 @@ export const analyzeBubbleFill = (imgDataOrCtx, x, y, radius, thresholdValue = 1
     imgWidth = imgData.width;
     imgHeight = imgData.height;
   }
-  
+
   let darkPixelCount = 0;
   let totalPixelsInsideCircle = 0;
-  
+
   // Scan pixels inside the circle boundary
   for (let r = 0; r < size; r++) {
     const py = startY + r;
     for (let c = 0; c < size; c++) {
       const px = startX + c;
-      
+
       // Calculate distance from center of bubble
       const dx = c - radius;
       const dy = r - radius;
-      
+
       if (dx * dx + dy * dy <= radius * radius) {
         totalPixelsInsideCircle++;
-        
+
         let idx;
         if (isImageData) {
           idx = (py * imgWidth + px) * 4;
         } else {
           idx = (r * size + c) * 4;
         }
-        
+
         const red = data[idx];
         const green = data[idx + 1];
         const blue = data[idx + 2];
-        
+
         // Convert to grayscale
         const gray = 0.299 * red + 0.587 * green + 0.114 * blue;
-        
+
         // If grayscale value is lower than threshold, it is dark (marked)
         if (gray < thresholdValue) {
           darkPixelCount++;
@@ -430,53 +521,65 @@ export const analyzeBubbleFill = (imgDataOrCtx, x, y, radius, thresholdValue = 1
       }
     }
   }
-  
-  return totalPixelsInsideCircle > 0 ? (darkPixelCount / totalPixelsInsideCircle) : 0;
+
+  return totalPixelsInsideCircle > 0
+    ? darkPixelCount / totalPixelsInsideCircle
+    : 0;
 };
 
 /**
  * Scans a row of bubbles and determines the selected option(s).
  * Options is an array of objects: { label: 'A', x: X_coord, y: Y_coord, r: Radius }
  */
-export const scanQuestionRow = (imgDataOrCtx, bubbles, thresholdValue = 150) => {
-  const results = bubbles.map(bubble => {
-    const fillRatio = analyzeBubbleFill(imgDataOrCtx, bubble.x, bubble.y, bubble.r, thresholdValue);
+export const scanQuestionRow = (
+  imgDataOrCtx,
+  bubbles,
+  thresholdValue = 150,
+) => {
+  const results = bubbles.map((bubble) => {
+    const fillRatio = analyzeBubbleFill(
+      imgDataOrCtx,
+      bubble.x,
+      bubble.y,
+      bubble.r,
+      thresholdValue,
+    );
     return {
       label: bubble.label,
-      fillRatio: fillRatio
+      fillRatio: fillRatio,
     };
   });
-  
+
   // Sort by fill ratio descending
   const sorted = [...results].sort((a, b) => b.fillRatio - a.fillRatio);
-  
+
   const PRIMARY_FILL_THRESHOLD = 0.35; // Bubble is filled if > 35% pixels are dark
-  const AMBIGUOUS_MARGIN = 0.12;       // If difference between 1st and 2nd option is small
-  
+  const AMBIGUOUS_MARGIN = 0.12; // If difference between 1st and 2nd option is small
+
   const best = sorted[0];
   const second = sorted[1];
-  
+
   if (best.fillRatio < PRIMARY_FILL_THRESHOLD) {
     return {
-      selected: 'BLANK',
+      selected: "BLANK",
       ratios: results,
-      confidence: 1.0 - best.fillRatio
+      confidence: 1.0 - best.fillRatio,
     };
   }
-  
+
   // Check if multiple bubbles are filled
   if (second && second.fillRatio >= PRIMARY_FILL_THRESHOLD) {
-     return {
-       selected: 'MULT',
-       ratios: results,
-       confidence: 0.0
-     };
+    return {
+      selected: "MULT",
+      ratios: results,
+      confidence: 0.0,
+    };
   }
-  
+
   return {
     selected: best.label,
     ratios: results,
-    confidence: best.fillRatio - (second ? second.fillRatio : 0)
+    confidence: best.fillRatio - (second ? second.fillRatio : 0),
   };
 };
 
@@ -485,28 +588,38 @@ export const scanQuestionRow = (imgDataOrCtx, bubbles, thresholdValue = 150) => 
  * Grid is arranged in columns (digits). Each column contains digits 0-9.
  * colsConfig: Array of arrays of bubbles. Each sub-array represents a column (from left to right digit).
  */
-export const scanRegistrationGrid = (imgDataOrCtx, colsConfig, thresholdValue = 150) => {
+export const scanRegistrationGrid = (
+  imgDataOrCtx,
+  colsConfig,
+  thresholdValue = 150,
+) => {
   let registrationNumber = "";
   let success = true;
-  
+
   // 30% fill threshold for robust digit detection
-  const FILL_THRESHOLD = 0.30; 
-  
+  const FILL_THRESHOLD = 0.3;
+
   colsConfig.forEach((colBubbles) => {
     let selectedLabel = "?";
-    
+
     // Scan bubble wise: row by row, top to bottom (from 1st row to last row)
     for (let i = 0; i < colBubbles.length; i++) {
       const bubble = colBubbles[i];
-      const fillRatio = analyzeBubbleFill(imgDataOrCtx, bubble.x, bubble.y, bubble.r, thresholdValue);
-      
+      const fillRatio = analyzeBubbleFill(
+        imgDataOrCtx,
+        bubble.x,
+        bubble.y,
+        bubble.r,
+        thresholdValue,
+      );
+
       // If it is black or blue circled (filled), take that number count / label and move next column
       if (fillRatio >= FILL_THRESHOLD) {
         selectedLabel = bubble.label;
         break; // Stop scanning this column, move to the next column
       }
     }
-    
+
     if (selectedLabel === "?") {
       registrationNumber += "?";
       success = false;
@@ -514,10 +627,9 @@ export const scanRegistrationGrid = (imgDataOrCtx, colsConfig, thresholdValue = 
       registrationNumber += selectedLabel;
     }
   });
-  
+
   return {
     value: registrationNumber,
-    success: success
+    success: success,
   };
 };
-

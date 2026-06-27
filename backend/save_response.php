@@ -17,6 +17,10 @@ $pattern = isset($_POST['pattern']) ? trim($_POST['pattern']) : 'A';
 if (empty($pattern)) {
     $pattern = 'A';
 }
+$qpcode = isset($_POST['qpcode']) ? trim($_POST['qpcode']) : null;
+if ($qpcode === '') {
+    $qpcode = null;
+}
 $responses_json = isset($_POST['responses']) ? $_POST['responses'] : '';
 
 if ($scanned_sheet_id <= 0 || empty($responses_json)) {
@@ -70,11 +74,12 @@ try {
     if (!empty($aligned_image_path)) {
         $upd = $pdo->prepare("
             UPDATE `scanned_sheets` 
-            SET omr_id = :omr_id, student_regno = :student_regno, aligned_image_path = :aligned_image_path, status = :status, pattern = :pattern 
+            SET omr_id = :omr_id, qpcode = :qpcode, student_regno = :student_regno, aligned_image_path = :aligned_image_path, status = :status, pattern = :pattern 
             WHERE id = :id
         ");
         $upd->execute([
             ':omr_id' => $omr_id,
+            ':qpcode' => $qpcode,
             ':student_regno' => $student_regno,
             ':aligned_image_path' => $aligned_image_path,
             ':status' => $status,
@@ -84,11 +89,12 @@ try {
     } else {
         $upd = $pdo->prepare("
             UPDATE `scanned_sheets` 
-            SET omr_id = :omr_id, student_regno = :student_regno, status = :status, pattern = :pattern 
+            SET omr_id = :omr_id, qpcode = :qpcode, student_regno = :student_regno, status = :status, pattern = :pattern 
             WHERE id = :id
         ");
         $upd->execute([
             ':omr_id' => $omr_id,
+            ':qpcode' => $qpcode,
             ':student_regno' => $student_regno,
             ':status' => $status,
             ':pattern' => $pattern,
@@ -97,28 +103,33 @@ try {
     }
 
     // Clear previous responses
-    $del = $pdo->prepare("DELETE FROM `student_responses` WHERE scanned_sheet_id = :sheet_id");
-    $del->execute([':sheet_id' => $scanned_sheet_id]);
+    $del = $pdo->prepare("DELETE FROM `student_responses` WHERE omr_id = :omr_id");
+    $del->execute([':omr_id' => $omr_id]);
 
     // Insert student responses
     $ins = $pdo->prepare("
-        INSERT INTO `student_responses` (scanned_sheet_id, question_number, selected_option) 
-        VALUES (:sheet_id, :question_number, :selected_option)
+        INSERT INTO `student_responses` (omr_id, question_number, selected_option) 
+        VALUES (:omr_id, :question_number, :selected_option)
     ");
 
     foreach ($responses as $resp) {
         $q_num = intval($resp['question_number']);
         $sel_opt = trim(strtoupper($resp['selected_option']));
         $ins->execute([
-            ':sheet_id' => $scanned_sheet_id,
+            ':omr_id' => $omr_id,
             ':question_number' => $q_num,
             ':selected_option' => $sel_opt
         ]);
     }
 
     // Evaluate score in real-time if answer key exists
-    $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern");
-    $key_stmt->execute([':template_id' => $template_id, ':pattern' => $pattern]);
+    if ($qpcode === null) {
+        $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern AND (qpcode IS NULL OR qpcode = '')");
+        $key_stmt->execute([':template_id' => $template_id, ':pattern' => $pattern]);
+    } else {
+        $key_stmt = $pdo->prepare("SELECT question_number, correct_option FROM `answer_keys` WHERE template_id = :template_id AND pattern = :pattern AND qpcode = :qpcode");
+        $key_stmt->execute([':template_id' => $template_id, ':pattern' => $pattern, ':qpcode' => $qpcode]);
+    }
     $keys = $key_stmt->fetchAll();
 
     if (count($keys) > 0) {
@@ -153,15 +164,16 @@ try {
         $score = $correct_count; // standard scoring
 
         // Save or update evaluation results
-        $eval_del = $pdo->prepare("DELETE FROM `evaluation_results` WHERE scanned_sheet_id = :sheet_id");
-        $eval_del->execute([':sheet_id' => $scanned_sheet_id]);
+        $eval_del = $pdo->prepare("DELETE FROM `evaluation_results` WHERE omr_id = :omr_id");
+        $eval_del->execute([':omr_id' => $omr_id]);
 
         $eval_ins = $pdo->prepare("
-            INSERT INTO `evaluation_results` (scanned_sheet_id, student_regno, total_questions, correct_answers, wrong_answers, blank_answers, score) 
-            VALUES (:sheet_id, :student_regno, :total_questions, :correct_answers, :wrong_answers, :blank_answers, :score)
+            INSERT INTO `evaluation_results` (omr_id, qpcode, student_regno, total_questions, correct_answers, wrong_answers, blank_answers, score) 
+            VALUES (:omr_id, :qpcode, :student_regno, :total_questions, :correct_answers, :wrong_answers, :blank_answers, :score)
         ");
         $eval_ins->execute([
-            ':sheet_id' => $scanned_sheet_id,
+            ':omr_id' => $omr_id,
+            ':qpcode' => $qpcode,
             ':student_regno' => $student_regno,
             ':total_questions' => $total_questions,
             ':correct_answers' => $correct_count,

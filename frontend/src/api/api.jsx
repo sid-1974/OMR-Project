@@ -28,11 +28,13 @@ const buildUrl = (endpoint, params = {}) => {
 
 // Centralized API Client
 export const api = {
-  // Get all templates, or get details of a specific template by ID
-  getTemplates: async (id = null, pattern = null) => {
+  // Get all templates, or get details of a specific template by ID or parent_id
+  getTemplates: async (id = null, parent_id = null, pattern = null, qpcode = null) => {
     const params = {};
     if (id) params.id = id;
+    if (parent_id) params.parent_id = parent_id;
     if (pattern) params.pattern = pattern;
+    if (qpcode) params.qpcode = qpcode;
     const url = buildUrl('get_templates.php', params);
     const response = await fetch(url);
     if (!response.ok) {
@@ -98,9 +100,21 @@ export const api = {
     return response.json();
   },
 
+  // Get distinct QP Codes available for a template
+  getQpCodes: async (templateId) => {
+    const url = buildUrl('get_qpcodes.php', { template_id: templateId });
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch QP Codes (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
   // Compare results against the answer key
-  compare: async (templateId) => {
-    const url = buildUrl('compare.php', { template_id: templateId });
+  compare: async (templateId, page = 1, limit = 20, qpcode = '') => {
+    const params = { template_id: templateId, page, limit };
+    if (qpcode) params.qpcode = qpcode;
+    const url = buildUrl('compare.php', params);
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to perform comparison (Status: ${response.status})`);

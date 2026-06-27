@@ -17,6 +17,8 @@ $height = isset($_POST['height']) ? intval($_POST['height']) : 0;
 $anchors_json = isset($_POST['anchors_json']) ? $_POST['anchors_json'] : '';
 $regno_config = isset($_POST['regno_config']) ? $_POST['regno_config'] : 'null';
 $sheetno_config = isset($_POST['sheetno_config']) ? $_POST['sheetno_config'] : 'null';
+$qpcode = isset($_POST['qpcode']) ? trim($_POST['qpcode']) : null;
+$qpcode_config = isset($_POST['qpcode_config']) ? $_POST['qpcode_config'] : 'null';
 $questions_config = isset($_POST['questions_config']) ? $_POST['questions_config'] : '';
 
 if (empty($name) || $width <= 0 || $height <= 0 || empty($anchors_json) || empty($questions_config)) {
@@ -40,16 +42,21 @@ if ($sheetno_config !== 'null' && !json_decode($sheetno_config)) {
     exit();
 }
 
+if ($qpcode_config !== 'null' && !json_decode($qpcode_config)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid JSON formatting for qpcode configuration.']);
+    exit();
+}
+
 $dest_path = null;
 $new_image_uploaded = false;
 
 if ($id > 0) {
-    // Check if the template exists
+    // Check if the template design exists
     $check_stmt = $pdo->prepare("SELECT blank_image_path FROM `omr_templates` WHERE id = :id");
     $check_stmt->execute([':id' => $id]);
     $existing = $check_stmt->fetch();
     if (!$existing) {
-        echo json_encode(['success' => false, 'message' => 'Template to update not found.']);
+        echo json_encode(['success' => false, 'message' => 'Template design to update not found.']);
         exit();
     }
     $dest_path = $existing['blank_image_path'];
@@ -93,15 +100,31 @@ if (isset($_FILES['blank_image']) && $_FILES['blank_image']['error'] === UPLOAD_
 }
 
 try {
+    $pdo->beginTransaction();
+
+    // Ensure Parent Template (Group) Exists
+    $stmtParentCheck = $pdo->prepare("SELECT id FROM `templates` WHERE name = :name");
+    $stmtParentCheck->execute([':name' => $name]);
+    $parent = $stmtParentCheck->fetch();
+
+    if ($parent) {
+        $parent_id = $parent['id'];
+    } else {
+        $stmtInsertParent = $pdo->prepare("INSERT INTO `templates` (name) VALUES (:name)");
+        $stmtInsertParent->execute([':name' => $name]);
+        $parent_id = $pdo->lastInsertId();
+    }
+
     if ($id > 0) {
         $stmt = $pdo->prepare("
             UPDATE `omr_templates` 
-            SET name = :name, blank_image_path = :blank_image_path, width = :width, height = :height, 
+            SET template_id = :template_id, name = :name, blank_image_path = :blank_image_path, width = :width, height = :height, 
                 anchors_json = :anchors_json, regno_config = :regno_config, sheetno_config = :sheetno_config, 
-                questions_config = :questions_config 
+                qpcode = :qpcode, qpcode_config = :qpcode_config, questions_config = :questions_config 
             WHERE id = :id
         ");
         $stmt->execute([
+            ':template_id' => $parent_id,
             ':name' => $name,
             ':blank_image_path' => $dest_path,
             ':width' => $width,
@@ -109,6 +132,8 @@ try {
             ':anchors_json' => $anchors_json,
             ':regno_config' => $regno_config === 'null' ? null : $regno_config,
             ':sheetno_config' => $sheetno_config === 'null' ? null : $sheetno_config,
+            ':qpcode' => $qpcode,
+            ':qpcode_config' => $qpcode_config === 'null' ? null : $qpcode_config,
             ':questions_config' => $questions_config,
             ':id' => $id
         ]);
@@ -118,14 +143,15 @@ try {
             unlink($old_dest_path);
         }
 
-        $template_id = $id;
-        $message = 'OMR template updated successfully.';
+        $template_id = $id; // id of the omr_templates record
+        $message = 'OMR template design updated successfully.';
     } else {
         $stmt = $pdo->prepare("
-            INSERT INTO `omr_templates` (name, blank_image_path, width, height, anchors_json, regno_config, sheetno_config, questions_config) 
-            VALUES (:name, :blank_image_path, :width, :height, :anchors_json, :regno_config, :sheetno_config, :questions_config)
+            INSERT INTO `omr_templates` (template_id, name, blank_image_path, width, height, anchors_json, regno_config, sheetno_config, qpcode, qpcode_config, questions_config) 
+            VALUES (:template_id, :name, :blank_image_path, :width, :height, :anchors_json, :regno_config, :sheetno_config, :qpcode, :qpcode_config, :questions_config)
         ");
         $stmt->execute([
+            ':template_id' => $parent_id,
             ':name' => $name,
             ':blank_image_path' => $dest_path,
             ':width' => $width,
@@ -133,20 +159,28 @@ try {
             ':anchors_json' => $anchors_json,
             ':regno_config' => $regno_config === 'null' ? null : $regno_config,
             ':sheetno_config' => $sheetno_config === 'null' ? null : $sheetno_config,
+            ':qpcode' => $qpcode,
+            ':qpcode_config' => $qpcode_config === 'null' ? null : $qpcode_config,
             ':questions_config' => $questions_config
         ]);
 
         $template_id = (int)$pdo->lastInsertId();
-        $message = 'OMR template created successfully.';
+        $message = 'OMR template design created successfully.';
     }
+
+    $pdo->commit();
 
     echo json_encode([
         'success' => true,
         'message' => $message,
-        'template_id' => $template_id,
+        'parent_id' => $parent_id,
+        'template_id' => $template_id, // Design ID
         'blank_image_path' => $dest_path
     ]);
 } catch (\PDOException $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     // Clean up new file if DB insert/update fails
     if ($new_image_uploaded && file_exists($dest_path)) {
         unlink($dest_path);
@@ -156,3 +190,4 @@ try {
         'message' => 'Database error: ' . $e->getMessage()
     ]);
 }
+?>
