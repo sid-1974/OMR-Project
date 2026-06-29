@@ -1,7 +1,8 @@
 RewriteEngine On
 
 # Adjust RewriteBase if needed, here it matches the directory structure
-RewriteBase /omr/backend/
+# Rewrite /omr/backend/
+RewriteBase /backend/
 
 # Check if requested file doesn't exist
 RewriteCond %{REQUEST_FILENAME} !-f

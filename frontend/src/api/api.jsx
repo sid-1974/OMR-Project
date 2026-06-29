@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_BASE;
+export const API_BASE =  "http://localhost/omr/backend";
 
 // Helper to retrieve the "db" query parameter from the current URL
 const getDbParam = () => {
