@@ -48,21 +48,21 @@ function App() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {activeTab === 'scan' && (
+        <div style={{ display: activeTab === 'scan' ? 'block' : 'none' }}>
           <OMRScanConsole onEvaluationComplete={() => setActiveTab('results')} />
-        )}
+        </div>
         
-        {activeTab === 'key' && (
+        <div style={{ display: activeTab === 'key' ? 'block' : 'none' }}>
           <OMRAnswerKeyConsole />
-        )}
+        </div>
         
-        {activeTab === 'designer' && (
+        <div style={{ display: activeTab === 'designer' ? 'block' : 'none' }}>
           <OMRTemplateDesigner onTemplateSaved={() => {}} />
-        )}
+        </div>
         
-        {activeTab === 'results' && (
+        <div style={{ display: activeTab === 'results' ? 'block' : 'none' }}>
           <OMRResultsDashboard />
-        )}
+        </div>
       </main>
 
       {/* Premium Footer */}

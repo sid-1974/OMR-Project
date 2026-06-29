@@ -30,6 +30,8 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
   const [reviewingIndex, setReviewingIndex] = useState(null);
   const [reviewData, setReviewData] = useState(null);
   const [showFullImage, setShowFullImage] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
 
   const rawCanvasRef = useRef(document.createElement('canvas'));
   const warpedCanvasRef = useRef(document.createElement('canvas'));
@@ -575,8 +577,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
           return;
         }
 
-        // Save automatically in Scan All mode
-        await saveResponsesToBackend(sheetId, scanResults.student_regno, scanResults.sheet_number, scanResults.qpcode, scanResults.responses, alignedBlob, item.pattern || 'A');
+        // Defer saving to backend until 'Done Scanning' is clicked
         updateFileItem(idx, {
           status: 'completed',
           studentRegno: scanResults.student_regno,
@@ -618,6 +619,42 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     if (!data.success) {
       throw new Error(data.message || "Failed to save response data.");
     }
+  };
+
+  const handleDoneScanning = async () => {
+    const completedFiles = files.filter(f => f.status === 'completed' && !f.savedToBackend);
+    if (completedFiles.length === 0) {
+      if (onEvaluationComplete) onEvaluationComplete();
+      return;
+    }
+
+    setIsSavingAll(true);
+    setSaveProgress(0);
+
+    for (let i = 0; i < completedFiles.length; i++) {
+      const item = completedFiles[i];
+      try {
+        await saveResponsesToBackend(
+          item.scannedSheetId,
+          item.studentRegno,
+          item.sheetNumber,
+          item.results?.qpcode,
+          item.results?.responses,
+          item.alignedBlob,
+          item.pattern || 'A'
+        );
+        const fileIndex = files.findIndex(f => f === item);
+        if (fileIndex !== -1) {
+          updateFileItem(fileIndex, { savedToBackend: true });
+        }
+      } catch (err) {
+        console.error(`Failed to save sheet ${item.sheetNumber}:`, err);
+      }
+      setSaveProgress(Math.round(((i + 1) / completedFiles.length) * 100));
+    }
+
+    setIsSavingAll(false);
+    if (onEvaluationComplete) onEvaluationComplete();
   };
 
   // Helper utils
@@ -817,16 +854,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     const item = files[idx];
 
     try {
-      await saveResponsesToBackend(
-        item.scannedSheetId,
-        reviewData.studentRegno,
-        reviewData.sheetNumber,
-        reviewData.qpcode,
-        reviewData.responses,
-        item.alignedBlob,
-        reviewData.pattern || 'A'
-      );
-
+      // Defer saving to backend until 'Done Scanning' is clicked
       updateFileItem(idx, {
         status: 'completed',
         studentRegno: reviewData.studentRegno,
@@ -1061,13 +1089,23 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
                     <CheckSquare size={16} /> Manual Approval
                   </button>
                 </div>
-                <button
-                  className="btn btn-success"
-                  style={{ width: '100%', padding: '0.75rem', fontWeight: 600 }}
-                  onClick={() => { if (onEvaluationComplete) onEvaluationComplete(); }}
-                >
-                  Done Scanning &rarr; View Results
-                </button>
+                {isSavingAll ? (
+                  <div style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                    <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem', textAlign: 'center' }}>Saving Results to Database: {saveProgress}%</p>
+                    <div style={{ width: '100%', height: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${saveProgress}%`, height: '100%', background: 'var(--accent-secondary)', transition: 'width 0.2s' }}></div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-success"
+                    style={{ width: '100%', padding: '0.75rem', fontWeight: 600 }}
+                    onClick={handleDoneScanning}
+                    disabled={files.length === 0}
+                  >
+                    Done Scanning &rarr; View Results
+                  </button>
+                )}
               </div>
             )}
           </div>
