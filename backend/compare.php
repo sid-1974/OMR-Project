@@ -115,6 +115,7 @@ try {
             'wrong_answers' => $student['wrong_answers'],
             'blank_answers' => $student['blank_answers'],
             'score' => $student['score'],
+            'evaluated_at' => $student['evaluated_at'],
             'comparison_matrix' => $comparison_matrix
         ];
     }

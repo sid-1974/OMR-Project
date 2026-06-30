@@ -250,7 +250,14 @@ const OMRResultsDashboard = () => {
       {/* Main Results Table */}
       {resultsData && resultsData.results.length > 0 && (
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Evaluated Students List</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Evaluated Students List</h3>
+            {resultsData.results[0]?.evaluated_at && (
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Evaluated at: {new Date(resultsData.results[0].evaluated_at).toLocaleDateString('en-GB')} {new Date(resultsData.results[0].evaluated_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+              </span>
+            )}
+          </div>
           
           <div style={{ overflowX: 'auto' }}>
             <table className="custom-table">
