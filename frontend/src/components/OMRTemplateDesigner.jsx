@@ -11,6 +11,9 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'designer'
+  const [allTemplates, setAllTemplates] = useState([]);
+
   const [anchors, setAnchors] = useState({
     type: '4_corners',
     topLeft: { x: 40, y: 40 },
@@ -108,6 +111,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       const res = await api.getTemplates();
       if (res.success) {
         setParents(res.parents || []);
+        setAllTemplates(res.templates || []);
       }
     } catch (err) {
       console.error('Failed to load templates', err);
@@ -1037,7 +1041,113 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     }
   };
 
+  const handleDeleteTemplate = async (templateId) => {
+    if (!window.confirm("Are you sure you want to delete this template design? Associated answer keys will also be deleted. This cannot be undone.")) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const res = await api.deleteTemplate(templateId);
+      if (res.success) {
+        alert("Template deleted successfully");
+        window.location.reload(); // Refresh the page completely
+      } else {
+        alert(res.message || "Failed to delete template");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting template");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditTemplate = async (template) => {
+    // template is an object from allTemplates
+    setSelectedParentId(template.template_id);
+    await fetchQpCodes(template.template_id);
+    setSelectedQpCodeId(template.id);
+    await handleSelectTemplate(template.id);
+    setViewMode('designer');
+  };
+
   const activeQBlock = questionBlocks.find(b => Number(b.id) === Number(activeQBlockId));
+
+  if (viewMode === 'list') {
+    return (
+      <div className="glass-card" style={{ padding: '2rem', minHeight: '80vh' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem' }}>Templates List</h2>
+            <p style={{ color: 'var(--text-secondary)' }}>Manage your existing OMR template designs or create a new one.</p>
+          </div>
+          <button 
+            className="btn btn-primary" 
+            onClick={() => {
+              handleSelectTemplate(null);
+              setViewMode('designer');
+            }}
+          >
+            <Plus size={18} />
+            Create New Template
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading templates...</div>
+        ) : allTemplates.length === 0 ? (
+          <div style={{ padding: '4rem 2rem', textAlign: 'center', background: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-md)' }}>
+            <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>No templates found. Create your first template to get started.</p>
+            <button className="btn btn-primary" onClick={() => { handleSelectTemplate(null); setViewMode('designer'); }}>
+              <Plus size={18} /> Create Template
+            </button>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ padding: '1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Template Name</th>
+                  <th style={{ padding: '1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Group (Parent)</th>
+                  <th style={{ padding: '1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Type / QPCode</th>
+                  <th style={{ padding: '1rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allTemplates.map(t => {
+                  const parent = parents.find(p => p.id === t.template_id);
+                  return (
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = 'rgba(0,0,0,0.02)'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ padding: '1rem', fontWeight: 500 }}>{t.name}</td>
+                      <td style={{ padding: '1rem' }}>{parent ? parent.name : 'Unknown Group'}</td>
+                      <td style={{ padding: '1rem' }}>
+                        {t.qpcode ? (
+                          <span style={{ padding: '0.25rem 0.5rem', background: 'rgba(99, 102, 241, 0.1)', color: 'var(--accent-primary)', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600 }}>QPCode: {t.qpcode}</span>
+                        ) : (
+                          <span style={{ padding: '0.25rem 0.5rem', background: 'rgba(100, 116, 139, 0.1)', color: 'var(--text-secondary)', borderRadius: '4px', fontSize: '0.85rem' }}>Normal Template</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button className="btn btn-secondary" style={{ padding: '0.5rem' }} title="Edit" onClick={() => handleEditTemplate(t)}>
+                            <Code size={16} /> Edit
+                          </button>
+                          <button className="btn btn-secondary" style={{ padding: '0.5rem', color: 'var(--error)' }} title="Delete" onClick={() => handleDeleteTemplate(t.id)}>
+                            <Trash2 size={16} /> Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card" style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '2rem', minHeight: '80vh' }}>
@@ -1053,9 +1163,14 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
       {/* Design Side Panel */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', borderRight: '1px solid var(--border-color)', paddingRight: '1.5rem' }}>
-        <div>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.25rem' }}>Template Designer</h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Map the structure of your blank OMR sheet.</p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '0.5rem' }}>
+          <button className="btn btn-secondary" style={{ padding: '0.5rem', marginTop: '0.2rem' }} title="Back to List" onClick={() => { fetchTemplates(); setViewMode('list'); }}>
+            &larr;
+          </button>
+          <div>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.25rem' }}>Template Designer</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Map the structure of your blank OMR sheet.</p>
+          </div>
         </div>
 
         <div className="form-group">

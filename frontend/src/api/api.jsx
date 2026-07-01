@@ -56,6 +56,21 @@ export const api = {
     return response.json();
   },
 
+  deleteTemplate: async (templateId) => {
+    const url = buildUrl('delete_template.php');
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id: templateId }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete template (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
   // Upload scanned OMR sheet image
   uploadScan: async (formData) => {
     const url = buildUrl('upload_scan.php');
