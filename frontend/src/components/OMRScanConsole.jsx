@@ -189,39 +189,59 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
 
     // 1. Scan Student Reg No
     let regno = '';
-    if (regConfig && regConfig.enabled) {
-      const colSpacing = regConfig.width / (regConfig.columns - 1 || 1);
-      const rowSpacing = regConfig.height / (regConfig.rows - 1 || 1);
-      const cols = [];
-
-      const is1to0 = regConfig.sequence === '1-0';
-      for (let col = 0; col < regConfig.columns; col++) {
-        const colBubbles = [];
-        const x = regConfig.x + col * colSpacing;
-        for (let row = 0; row < regConfig.rows; row++) {
-          const y = regConfig.y + row * rowSpacing;
-          let label;
-          if (regConfig.rows === 10) {
-            if (is1to0) {
-              label = row === 9 ? "0" : (row + 1).toString();
-            } else {
-              label = row.toString();
-            }
-          } else {
-            label = regConfig.rows === 9 ? (row + 1).toString() : row.toString();
-          }
-          colBubbles.push({
-            label: label,
-            x: Math.round(x),
-            y: Math.round(y),
-            r: regConfig.bubbleRadius
-          });
-        }
-        cols.push(colBubbles);
+    if (regConfig) {
+      let regBlocks = [];
+      if (Array.isArray(regConfig)) {
+        regBlocks = regConfig;
+      } else if (regConfig.enabled) {
+        regBlocks = [regConfig];
       }
 
-      const scanResult = scanRegistrationGrid(globalImgData, cols, 150);
-      regno = scanResult.value;
+      // Filter enabled blocks and sort from left to right
+      regBlocks = regBlocks.filter(b => b.enabled).sort((a, b) => a.x - b.x);
+
+      if (regBlocks.length > 0) {
+        const allCols = [];
+
+        for (const block of regBlocks) {
+          const colSpacing = block.width / (block.columns - 1 || 1);
+          const rowSpacing = block.height / (block.rows - 1 || 1);
+          const is1to0 = block.sequence === '1-0';
+
+          for (let col = 0; col < block.columns; col++) {
+            const colBubbles = [];
+            const x = block.x + col * colSpacing;
+
+            const colType = (block.type === 'alphanumeric' && block.columnTypes && block.columnTypes[col]) ? block.columnTypes[col] : 'numeric';
+            const bubblesInCol = colType === 'alpha' ? 26 : (colType === 'numeric' && block.type === 'alphanumeric' ? Math.min(10, block.rows) : block.rows);
+
+            for (let row = 0; row < bubblesInCol; row++) {
+              const y = block.y + row * rowSpacing;
+              let label = '';
+              if (colType === 'alpha') {
+                label = String.fromCharCode(65 + row);
+              } else {
+                if (bubblesInCol === 10) {
+                  if (is1to0) label = row === 9 ? "0" : (row + 1).toString();
+                  else label = row.toString();
+                } else {
+                  label = bubblesInCol === 9 ? (row + 1).toString() : row.toString();
+                }
+              }
+              colBubbles.push({
+                label: label,
+                x: Math.round(x),
+                y: Math.round(y),
+                r: block.bubbleRadius
+              });
+            }
+            allCols.push(colBubbles);
+          }
+        }
+
+        const scanResult = scanRegistrationGrid(globalImgData, allCols, 150);
+        regno = scanResult.value;
+      }
     }
 
     // 2. Scan Sheet Number (Conditional on OMR bubble mode)
@@ -416,8 +436,9 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
           // Convert to blob (needed for backend upload)
           alignedBlob = await getCanvasBlob(warpedCanvas);
 
-          // We do NOT store alignedDataUrl in state here to save memory. 
-          // We will generate it only if the sheet is flagged for review.
+          // We must generate the data URL here so it's ready if the sheet goes into manual review
+          const currentDataUrl = warpedCanvas.toDataURL('image/jpeg', 0.8);
+          updateFileItem(idx, { alignedBlob, alignedDataUrl: currentDataUrl });
 
           // Run scan algorithm on the warped canvas
           scanResults = processAlignedOMR(warpedCanvas, selectedTemplate);
@@ -548,6 +569,9 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
             isQpcodeInvalid = true;
             reasons.push(`Unknown QP Code (${scanResults.qpcode})`);
           }
+        } else {
+          // If no QP code grid on template, use the one selected from dropdown
+          scanResults.qpcode = defaultQpCode || '';
         }
 
         if (scanResults.student_regno.includes('?')) reasons.push("Incomplete Reg No");
@@ -704,6 +728,11 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     const canvas = reviewCanvasRef.current;
     const ctx = canvas.getContext('2d');
 
+    // Clear canvas immediately so old sheet doesn't linger
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!files[reviewingIndex].alignedDataUrl) return;
+
     const img = new Image();
     img.onload = () => {
       canvas.width = img.width;
@@ -831,9 +860,21 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
     let sheetConfig = selectedTemplate?.sheetno_config;
     if (typeof sheetConfig === 'string') sheetConfig = JSON.parse(sheetConfig);
 
-    if (regConfig?.enabled && !reviewData.studentRegno?.trim()) {
-      alert("Student Reg No is required to approve this sheet.");
-      return;
+    if (regConfig) {
+      let regBlocks = Array.isArray(regConfig) ? regConfig : (regConfig.enabled ? [regConfig] : []);
+      const expectedLength = regBlocks.filter(b => b.enabled).reduce((sum, block) => sum + (parseInt(block.columns) || 0), 0);
+      const enteredRegNo = reviewData.studentRegno?.trim() || '';
+
+      if (expectedLength > 0) {
+        if (!enteredRegNo) {
+          alert("Student Reg No is required to approve this sheet.");
+          return;
+        }
+        if (enteredRegNo.length !== expectedLength) {
+          alert(`Student Reg No must be exactly ${expectedLength} characters long (based on template). You entered ${enteredRegNo.length}.`);
+          return;
+        }
+      }
     }
     if (sheetConfig?.enabled && !reviewData.sheetNumber?.trim()) {
       alert("OMR ID is required to approve this sheet.");
@@ -1221,6 +1262,7 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
             file={files[aligningIndex].file}
             template={selectedTemplate}
             onAligned={handleAlignedCallback}
+            onCancel={() => setAligningIndex(null)}
           />
         </div>
       )}

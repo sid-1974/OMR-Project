@@ -7,6 +7,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
   const [templateName, setTemplateName] = useState('My OMR Template');
   const [imageSrc, setImageSrc] = useState(null);
+  const [existingImagePath, setExistingImagePath] = useState('');
   const [imageDimensions, setImageDimensions] = useState({ width: 800, height: 1100 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -22,17 +23,23 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     bottomRight: { x: 760, y: 1060 }
   });
 
-  const [regNoConfig, setRegNoConfig] = useState({
-    enabled: true,
-    x: 100,
-    y: 150,
-    width: 250,
-    height: 300,
-    columns: 6, // 6 digits
-    rows: 10,   // 0-9
-    bubbleRadius: 8,
-    sequence: '0-9'
-  });
+  const [regNoBlocks, setRegNoBlocks] = useState([
+    {
+      id: 1,
+      enabled: true,
+      x: 100,
+      y: 150,
+      width: 250,
+      height: 300,
+      columns: 6, // 6 digits
+      rows: 10,   // 0-9
+      bubbleRadius: 8,
+      sequence: '0-9',
+      type: 'numeric',
+      columnTypes: []
+    }
+  ]);
+  const [activeRegBlockId, setActiveRegBlockId] = useState(1);
 
   const [qpCodeConfig, setQpCodeConfig] = useState({
     enabled: false,
@@ -151,7 +158,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     img.src = url;
   };
 
-  const handleSelectTemplate = async (templateId) => {
+  const handleSelectTemplate = async (templateId, isCopy = false) => {
     setSelectedQpCodeId(templateId || '');
     if (!templateId) {
       // Clear/Reset to default state to start a new template design
@@ -159,6 +166,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       setTemplateQpCode('');
       setImageSrc(null);
       setImageObj(null);
+      setExistingImagePath('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -169,17 +177,23 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         bottomLeft: { x: 40, y: 1060 },
         bottomRight: { x: 760, y: 1060 }
       });
-      setRegNoConfig({
-        enabled: true,
-        x: 100,
-        y: 150,
-        width: 250,
-        height: 300,
-        columns: 6,
-        rows: 10,
-        bubbleRadius: 8,
-        sequence: '0-9'
-      });
+      setRegNoBlocks([
+        {
+          id: 1,
+          enabled: true,
+          x: 100,
+          y: 150,
+          width: 250,
+          height: 300,
+          columns: 6,
+          rows: 10,
+          bubbleRadius: 8,
+          sequence: '0-9',
+          type: 'numeric',
+          columnTypes: []
+        }
+      ]);
+      setActiveRegBlockId(1);
       setQpCodeConfig({
         enabled: false,
         x: 400,
@@ -235,9 +249,10 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       const res = await api.getTemplates(templateId);
       if (res.success && res.template) {
         const t = res.template;
-        setEditingTemplateId(t.id);
-        setTemplateName(t.name);
-        setTemplateQpCode(t.qpcode || '');
+        setEditingTemplateId(isCopy ? null : t.id);
+        setTemplateName(isCopy ? `${t.name} - Copy` : t.name);
+        setTemplateQpCode(isCopy ? '' : (t.qpcode || ''));
+        setExistingImagePath(t.blank_image_path || '');
         setImageDimensions({ width: parseInt(t.width) || 800, height: parseInt(t.height) || 1100 });
 
         const loadedAnchors = typeof t.anchors_json === 'string' ? JSON.parse(t.anchors_json) : t.anchors_json;
@@ -251,9 +266,15 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         }
         setAnchors({ type: '4_corners', ...loadedAnchors });
 
-        const defaultRegNo = { enabled: false, x: 100, y: 150, width: 250, height: 300, columns: 6, rows: 10, bubbleRadius: 8, sequence: '0-9' };
+        const defaultRegNo = { enabled: false, x: 100, y: 150, width: 250, height: 300, columns: 6, rows: 10, bubbleRadius: 8, sequence: '0-9', type: 'numeric', columnTypes: [] };
         const parsedRegNo = (t.regno_config && t.regno_config !== 'null') ? (typeof t.regno_config === 'string' ? JSON.parse(t.regno_config) : t.regno_config) : null;
-        setRegNoConfig({ ...defaultRegNo, ...(parsedRegNo || {}) });
+        if (parsedRegNo && Array.isArray(parsedRegNo)) {
+          setRegNoBlocks(parsedRegNo);
+          setActiveRegBlockId(parsedRegNo[0]?.id || 1);
+        } else {
+          setRegNoBlocks([{ ...defaultRegNo, ...(parsedRegNo || {}), id: 1 }]);
+          setActiveRegBlockId(1);
+        }
 
         const defaultQpCode = { enabled: false, x: 400, y: 150, width: 150, height: 300, columns: 4, rows: 10, bubbleRadius: 8, sequence: '0-9' };
         const parsedQpCode = (t.qpcode_config && t.qpcode_config !== 'null') ? (typeof t.qpcode_config === 'string' ? JSON.parse(t.qpcode_config) : t.qpcode_config) : null;
@@ -396,13 +417,20 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
     for (let col = 0; col < config.columns; col++) {
       const x = config.x + col * colSpacing;
-      for (let row = 0; row < config.rows; row++) {
+      const colType = (config.type === 'alphanumeric' && config.columnTypes && config.columnTypes[col]) ? config.columnTypes[col] : 'numeric';
+      const bubblesInCol = colType === 'alpha' ? 26 : (colType === 'numeric' && config.type === 'alphanumeric' ? Math.min(10, config.rows) : config.rows);
+
+      for (let row = 0; row < bubblesInCol; row++) {
         const y = config.y + row * rowSpacing;
-        let label = row.toString();
-        if (config.sequence === '1-0' && config.rows === 10) {
-          label = row === 9 ? '0' : (row + 1).toString();
-        } else if (config.rows === 9) {
-          label = (row + 1).toString();
+        let label = '';
+        if (colType === 'alpha') {
+          label = String.fromCharCode(65 + row);
+        } else {
+          if (config.sequence === '1-0' && bubblesInCol === 10) {
+            label = row === 9 ? '0' : (row + 1).toString();
+          } else {
+            label = bubblesInCol === 10 ? row.toString() : (config.rows === 9 ? (row + 1).toString() : row.toString());
+          }
         }
         bubbles.push({
           label: label,
@@ -510,25 +538,29 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     }
 
     // Draw Registration Grid (Cyan circles)
-    if (regNoConfig.enabled && (activeTab === 'all' || activeTab === 'regno')) {
-      ctx.strokeStyle = '#06b6d4';
-      ctx.lineWidth = 1.5;
+    if (activeTab === 'all' || activeTab === 'regno') {
+      regNoBlocks.forEach(block => {
+        if (!block.enabled) return;
+        const isActive = Number(block.id) === Number(activeRegBlockId) && activeTab === 'regno';
+        ctx.strokeStyle = isActive ? '#06b6d4' : 'rgba(6, 182, 212, 0.4)';
+        ctx.lineWidth = isActive ? 2 : 1.5;
 
-      // Draw outer bounding box
-      ctx.strokeRect(regNoConfig.x, regNoConfig.y, regNoConfig.width, regNoConfig.height);
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.2)';
-      ctx.fillText('Student Regno Grid', regNoConfig.x, regNoConfig.y - 6);
+        // Draw outer bounding box
+        ctx.strokeRect(block.x, block.y, block.width, block.height);
+        ctx.fillStyle = isActive ? 'rgba(6, 182, 212, 0.5)' : 'rgba(6, 182, 212, 0.2)';
+        ctx.fillText(`Student Regno Grid (Block ${block.id})`, block.x, block.y - 6);
 
-      const bubbles = getRegNoBubbles(regNoConfig);
-      bubbles.forEach(b => {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, 2 * Math.PI);
-        ctx.stroke();
+        const bubbles = getRegNoBubbles(block);
+        bubbles.forEach(b => {
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r, 0, 2 * Math.PI);
+          ctx.stroke();
+        });
+
+        if (isActive) {
+          drawResizeHandles(ctx, block, '#06b6d4');
+        }
       });
-
-      if (activeTab === 'regno') {
-        drawResizeHandles(ctx, regNoConfig, '#06b6d4');
-      }
     }
 
     // Draw QP Code Grid (Amber circles)
@@ -631,7 +663,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
 
   useEffect(() => {
     drawCanvas();
-  }, [imageObj, anchors, regNoConfig, qpCodeConfig, sheetNoConfig, timingMarksConfig, questionBlocks, activeTab, activeQBlockId]);
+  }, [imageObj, anchors, regNoBlocks, qpCodeConfig, sheetNoConfig, timingMarksConfig, questionBlocks, activeTab, activeQBlockId]);
 
   // Update cursor dynamically based on hover coordinates
   const handleCanvasMouseMove = (e) => {
@@ -643,7 +675,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
     let target = null;
-    if (activeTab === 'regno' && regNoConfig.enabled) target = regNoConfig;
+    if (activeTab === 'regno' && activeRegBlock && activeRegBlock.enabled) target = activeRegBlock;
     else if (activeTab === 'qpcode' && qpCodeConfig.enabled) target = qpCodeConfig;
     else if (activeTab === 'sheetno' && sheetNoConfig.enabled && sheetNoConfig.mode === 'barcode') target = sheetNoConfig;
     else if (activeTab === 'questions' && activeQBlock) target = activeQBlock;
@@ -729,9 +761,15 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     let target = null;
     let setTarget = null;
 
-    if (activeTab === 'regno' && regNoConfig.enabled) {
-      target = regNoConfig;
-      setTarget = setRegNoConfig;
+    if (activeTab === 'regno' && activeRegBlock && activeRegBlock.enabled) {
+      target = activeRegBlock;
+      setTarget = (newVal) => {
+        if (typeof newVal === 'function') {
+          setRegNoBlocks(prev => prev.map(b => Number(b.id) === Number(activeRegBlockId) ? newVal(b) : b));
+        } else {
+          setRegNoBlocks(prev => prev.map(b => Number(b.id) === Number(activeRegBlockId) ? newVal : b));
+        }
+      };
     } else if (activeTab === 'qpcode' && qpCodeConfig.enabled) {
       target = qpCodeConfig;
       setTarget = setQpCodeConfig;
@@ -968,7 +1006,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     try {
       // Get the image file blob from the file input
       const file = fileInputRef.current?.files?.[0];
-      if (!file && !editingTemplateId) {
+      if (!file && !editingTemplateId && !existingImagePath) {
         setError('Blank OMR sheet image file not found. Please upload it.');
         setLoading(false);
         return;
@@ -977,6 +1015,9 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
       const formData = new FormData();
       if (editingTemplateId) {
         formData.append('id', editingTemplateId);
+      }
+      if (existingImagePath) {
+        formData.append('existing_image_path', existingImagePath);
       }
       formData.append('name', templateName);
       formData.append('width', imageDimensions.width);
@@ -999,7 +1040,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
         ...anchorsToSave,
         timingMarks: timingMarksConfig
       }));
-      formData.append('regno_config', regNoConfig.enabled ? JSON.stringify(regNoConfig) : 'null');
+      formData.append('regno_config', JSON.stringify(regNoBlocks));
       formData.append('qpcode_config', qpCodeConfig.enabled ? JSON.stringify(qpCodeConfig) : 'null');
       formData.append('sheetno_config', sheetNoConfig.enabled ? JSON.stringify(sheetNoConfig) : 'null');
 
@@ -1072,7 +1113,13 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
     setViewMode('designer');
   };
 
+  const handleCopyTemplate = async (template) => {
+    await handleSelectTemplate(template.id, true);
+    setViewMode('designer');
+  };
+
   const activeQBlock = questionBlocks.find(b => Number(b.id) === Number(activeQBlockId));
+  const activeRegBlock = regNoBlocks.find(b => Number(b.id) === Number(activeRegBlockId)) || regNoBlocks[0];
 
   if (viewMode === 'list') {
     return (
@@ -1132,6 +1179,9 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <button className="btn btn-secondary" style={{ padding: '0.5rem' }} title="Edit" onClick={() => handleEditTemplate(t)}>
                             <Code size={16} /> Edit
+                          </button>
+                          <button className="btn btn-secondary" style={{ padding: '0.5rem' }} title="Copy" onClick={() => handleCopyTemplate(t)}>
+                            <Copy size={16} /> Copy
                           </button>
                           <button className="btn btn-secondary" style={{ padding: '0.5rem', color: 'var(--error)' }} title="Delete" onClick={() => handleDeleteTemplate(t.id)}>
                             <Trash2 size={16} /> Delete
@@ -1402,37 +1452,143 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
               {activeTab === 'regno' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <input type="checkbox" id="reg-enabled" checked={regNoConfig.enabled} onChange={(e) => setRegNoConfig({ ...regNoConfig, enabled: e.target.checked })} />
+                    <input type="checkbox" id="reg-enabled" checked={regNoBlocks.some(b => b.enabled)} onChange={(e) => setRegNoBlocks(prev => prev.map(b => ({ ...b, enabled: e.target.checked })))} />
                     <label htmlFor="reg-enabled" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Enable Registration Grid</label>
                   </div>
-                  {regNoConfig.enabled && (
+                  {regNoBlocks.some(b => b.enabled) && (
                     <>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        {regNoBlocks.map(block => (
+                          <button
+                            key={block.id}
+                            className={`btn ${Number(activeRegBlockId) === Number(block.id) ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                            onClick={() => setActiveRegBlockId(block.id)}
+                          >
+                            Block {block.id}
+                          </button>
+                        ))}
+                        <button
+                          className="btn btn-outline"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                          onClick={() => {
+                            const newId = Math.max(0, ...regNoBlocks.map(b => b.id)) + 1;
+                            setRegNoBlocks([...regNoBlocks, { ...activeRegBlock, id: newId, x: activeRegBlock.x + 50 }]);
+                            setActiveRegBlockId(newId);
+                          }}
+                        >
+                          <Plus size={14} /> Add Block
+                        </button>
+                      </div>
+                      
+                      {/* Active Block Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-secondary)', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <CheckCircle size={14} className="text-primary" /> Edit Block {activeRegBlock.id}
+                        </h4>
+                        <div style={{ display: 'flex', gap: '0.25rem' }}>
+                          <button className="btn btn-outline" style={{ padding: '0.25rem' }} title="Duplicate Block" onClick={() => {
+                            const newId = Math.max(0, ...regNoBlocks.map(b => b.id)) + 1;
+                            setRegNoBlocks([...regNoBlocks, { ...activeRegBlock, id: newId, x: activeRegBlock.x + 50 }]);
+                            setActiveRegBlockId(newId);
+                          }}>
+                            <Copy size={14} />
+                          </button>
+                          <button className="btn btn-danger" style={{ padding: '0.25rem' }} title="Delete Block" onClick={() => {
+                            if (regNoBlocks.length <= 1) return;
+                            const newBlocks = regNoBlocks.filter(b => b.id !== activeRegBlock.id);
+                            setRegNoBlocks(newBlocks);
+                            setActiveRegBlockId(newBlocks[0].id);
+                          }}>
+                            <Trash size={14} />
+                          </button>
+                        </div>
+                      </div>
+
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label className="form-label" style={{ fontSize: '0.8rem' }}>Registration Type</label>
+                          <SearchableDropdown
+                            options={[
+                              { label: "Numeric Only", value: "numeric" },
+                              { label: "Alphanumeric", value: "alphanumeric" }
+                            ]}
+                            value={activeRegBlock.type || 'numeric'}
+                            onChange={(val) => {
+                              const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, type: val, columnTypes: val === 'alphanumeric' ? Array(b.columns).fill('numeric') : [] } : b);
+                              setRegNoBlocks(newBlocks);
+                            }}
+                          />
+                        </div>
+                        {activeRegBlock.type === 'alphanumeric' && (
+                          <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '0.25rem', overflowX: 'auto', paddingBottom: '4px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem' }}>Column Configuration</label>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              {Array.from({ length: activeRegBlock.columns }).map((_, i) => (
+                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '60px' }}>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Col {i + 1}</span>
+                                  <select 
+                                    value={activeRegBlock.columnTypes?.[i] || 'numeric'} 
+                                    className="form-input"
+                                    style={{ padding: '2px 4px', fontSize: '0.75rem' }}
+                                    onChange={(e) => {
+                                      const newTypes = [...(activeRegBlock.columnTypes || Array(activeRegBlock.columns).fill('numeric'))];
+                                      newTypes[i] = e.target.value;
+                                      const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, columnTypes: newTypes } : b);
+                                      setRegNoBlocks(newBlocks);
+                                    }}
+                                  >
+                                    <option value="numeric">Num</option>
+                                    <option value="alpha">Alpha</option>
+                                  </select>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Grid X</label>
-                          <input type="number" className="form-input" value={regNoConfig.x} onChange={(e) => setRegNoConfig({ ...regNoConfig, x: parseInt(e.target.value) || 0 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.x} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, x: parseInt(e.target.value) || 0 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Grid Y</label>
-                          <input type="number" className="form-input" value={regNoConfig.y} onChange={(e) => setRegNoConfig({ ...regNoConfig, y: parseInt(e.target.value) || 0 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.y} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, y: parseInt(e.target.value) || 0 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Width</label>
-                          <input type="number" className="form-input" value={regNoConfig.width} onChange={(e) => setRegNoConfig({ ...regNoConfig, width: parseInt(e.target.value) || 0 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.width} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, width: parseInt(e.target.value) || 0 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Height</label>
-                          <input type="number" className="form-input" value={regNoConfig.height} onChange={(e) => setRegNoConfig({ ...regNoConfig, height: parseInt(e.target.value) || 0 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.height} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, height: parseInt(e.target.value) || 0 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Digits (Cols)</label>
-                          <input type="number" className="form-input" value={regNoConfig.columns} onChange={(e) => setRegNoConfig({ ...regNoConfig, columns: parseInt(e.target.value) || 1 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.columns} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, columns: parseInt(e.target.value) || 1 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
                         <div>
                           <label className="form-label" style={{ fontSize: '0.8rem' }}>Radius</label>
-                          <input type="number" className="form-input" value={regNoConfig.bubbleRadius} onChange={(e) => setRegNoConfig({ ...regNoConfig, bubbleRadius: parseInt(e.target.value) || 1 })} />
+                          <input type="number" className="form-input" value={activeRegBlock.bubbleRadius} onChange={(e) => {
+                            const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, bubbleRadius: parseInt(e.target.value) || 1 } : b);
+                            setRegNoBlocks(newBlocks);
+                          }} />
                         </div>
-                        {regNoConfig.rows === 10 && (
+                        {activeRegBlock.rows === 10 && (
                           <div style={{ gridColumn: 'span 2' }}>
                             <label className="form-label" style={{ fontSize: '0.8rem' }}>Digit Sequence</label>
                             <SearchableDropdown
@@ -1440,8 +1596,11 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                                 { label: "0 to 9 (0, 1, 2... 9)", value: "0-9" },
                                 { label: "1 to 0 (1, 2, 3... 0)", value: "1-0" }
                               ]}
-                              value={regNoConfig.sequence || '0-9'}
-                              onChange={(val) => setRegNoConfig({ ...regNoConfig, sequence: val })}
+                              value={activeRegBlock.sequence || '0-9'}
+                              onChange={(val) => {
+                                const newBlocks = regNoBlocks.map(b => b.id === activeRegBlockId ? { ...b, sequence: val } : b);
+                                setRegNoBlocks(newBlocks);
+                              }}
                             />
                           </div>
                         )}
@@ -1734,7 +1893,7 @@ const OMRTemplateDesigner = ({ onTemplateSaved }) => {
                               </div>
                               <div>
                                 <label className="form-label" style={{ fontSize: '0.65rem', marginBottom: '0.15rem' }}>Radius</label>
-                                <input type="number" className="form-input" style={{ padding: '4px', fontSize: '0.75rem', textAlign: 'center' }} value={block.bubbleRadius} onChange={(e) => updateQBlockById(block.id, 'bubbleRadius', parseInt(e.target.value) || 1)} onFocus={() => setActiveQBlockId(block.id)} />
+                                <input type="number" step="0.1" className="form-input" style={{ padding: '4px', fontSize: '0.75rem', textAlign: 'center' }} value={block.bubbleRadius} onChange={(e) => updateQBlockById(block.id, 'bubbleRadius', parseFloat(e.target.value) || 1)} onFocus={() => setActiveQBlockId(block.id)} />
                               </div>
                             </div>
                           </div>

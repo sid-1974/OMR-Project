@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { RefreshCw, Check, AlertCircle, RotateCw } from 'lucide-react';
 import { detectAnchors, warpPerspective } from '../utils/omrScanner';
 
-const OMRImageAdjuster = ({ file, template, onAligned }) => {
+const OMRImageAdjuster = ({ file, template, onAligned, onCancel }) => {
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [anchors, setAnchors] = useState({
@@ -15,6 +15,7 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
   const [autoDetected, setAutoDetected] = useState(false);
   const [originalDimensions, setOriginalDimensions] = useState({ width: 600, height: 800 });
   const [imageObj, setImageObj] = useState(null);
+  const [rotation, setRotation] = useState(0);
   
   const containerRef = useRef(null);
   const rawCanvasRef = useRef(null);
@@ -25,49 +26,78 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
     if (!file) return;
 
     setLoading(true);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = async () => {
-        setImageObj(img);
-        
-        // Calculate display size (bound width to 600px for editing UI)
-        const maxWidth = 600;
-        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
-        const dispW = Math.round(img.width * scale);
-        const dispH = Math.round(img.height * scale);
-        
-        setOriginalDimensions({ width: dispW, height: dispH });
-        
-        // Draw to raw canvas
-        const canvas = rawCanvasRef.current;
-        canvas.width = dispW;
-        canvas.height = dispH;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, dispW, dispH);
-
-        // Run auto-anchor detection using template guidance
-        setDetecting(true);
-        try {
-          const detected = await detectAnchors(canvas, template);
-          setAnchors({
-            topLeft: detected.topLeft,
-            topRight: detected.topRight,
-            bottomLeft: detected.bottomLeft,
-            bottomRight: detected.bottomRight
-          });
-          setAutoDetected(detected.autoDetected);
-        } catch (err) {
-          console.error("Auto anchor detection failed", err);
-        } finally {
-          setDetecting(false);
-          setLoading(false);
-        }
-      };
-      img.src = e.target.result;
+    const objectUrl = typeof file === 'string' ? file : URL.createObjectURL(file);
+    
+    const img = new Image();
+    img.onload = () => {
+      setImageObj(img);
+      if (typeof file !== 'string') {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      console.error("Failed to load image in OMRImageAdjuster");
+      setLoading(false);
+      if (typeof file !== 'string') {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+    img.src = objectUrl;
   }, [file]);
+
+  // Process image for drawing and rotation
+  useEffect(() => {
+    if (!imageObj) return;
+
+    const processImage = async () => {
+      setDetecting(true);
+
+      const isVertical = rotation % 180 !== 0;
+      const imgW = isVertical ? imageObj.height : imageObj.width;
+      const imgH = isVertical ? imageObj.width : imageObj.height;
+
+      // Calculate display size (bound width to 600px for editing UI)
+      const maxWidth = 600;
+      const scale = imgW > maxWidth ? maxWidth / imgW : 1;
+      const dispW = Math.round(imgW * scale);
+      const dispH = Math.round(imgH * scale);
+      
+      setOriginalDimensions({ width: dispW, height: dispH });
+      
+      // Draw to raw canvas
+      const canvas = rawCanvasRef.current;
+      canvas.width = dispW;
+      canvas.height = dispH;
+      const ctx = canvas.getContext('2d');
+
+      ctx.save();
+      ctx.translate(dispW / 2, dispH / 2);
+      ctx.rotate((rotation * Math.PI) / 180);
+      const drawW = isVertical ? dispH : dispW;
+      const drawH = isVertical ? dispW : dispH;
+      ctx.drawImage(imageObj, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.restore();
+
+      // Run auto-anchor detection using template guidance
+      try {
+        const detected = await detectAnchors(canvas, template);
+        setAnchors({
+          topLeft: detected.topLeft,
+          topRight: detected.topRight,
+          bottomLeft: detected.bottomLeft,
+          bottomRight: detected.bottomRight
+        });
+        setAutoDetected(detected.autoDetected);
+      } catch (err) {
+        console.error("Auto anchor detection failed", err);
+      } finally {
+        setDetecting(false);
+        setLoading(false);
+      }
+    };
+
+    processImage();
+  }, [imageObj, rotation, template]);
 
   // Re-run perspective warp when anchors change
   useEffect(() => {
@@ -141,9 +171,13 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
     setLoading(true);
 
     try {
+      const isVertical = rotation % 180 !== 0;
+      const imgW = isVertical ? imageObj.height : imageObj.width;
+      const imgH = isVertical ? imageObj.width : imageObj.height;
+
       // Reconstruct the scale factor used during initialization
       const maxWidth = 600;
-      const scale = imageObj.width > maxWidth ? maxWidth / imageObj.width : 1;
+      const scale = imgW > maxWidth ? maxWidth / imgW : 1;
 
       // Scale anchors back to the original full-resolution image coordinates
       const fullResAnchors = {
@@ -155,10 +189,17 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
 
       // Create a temporary full-resolution raw canvas
       const fullRawCanvas = document.createElement('canvas');
-      fullRawCanvas.width = imageObj.width;
-      fullRawCanvas.height = imageObj.height;
+      fullRawCanvas.width = imgW;
+      fullRawCanvas.height = imgH;
       const rawCtx = fullRawCanvas.getContext('2d');
-      rawCtx.drawImage(imageObj, 0, 0);
+      
+      rawCtx.save();
+      rawCtx.translate(imgW / 2, imgH / 2);
+      rawCtx.rotate((rotation * Math.PI) / 180);
+      const drawW = isVertical ? imgH : imgW;
+      const drawH = isVertical ? imgW : imgH;
+      rawCtx.drawImage(imageObj, -drawW / 2, -drawH / 2, drawW, drawH);
+      rawCtx.restore();
 
       // Create the final high-quality warped canvas
       const fullWarpedCanvas = document.createElement('canvas');
@@ -195,6 +236,15 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%' }}>
+      {/* Header Actions */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button 
+          className="btn btn-outline"
+          onClick={onCancel}
+        >
+          &larr; Back
+        </button>
+      </div>
       
       {/* Top Banner Status */}
       <div style={{ 
@@ -217,19 +267,28 @@ const OMRImageAdjuster = ({ file, template, onAligned }) => {
         </div>
         
         {!detecting && (
-          <button 
-            className="btn btn-secondary" 
-            style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-            onClick={async () => {
-              setDetecting(true);
-              const detected = await detectAnchors(rawCanvasRef.current, template);
-              setAnchors(detected);
-              setAutoDetected(detected.autoDetected);
-              setDetecting(false);
-            }}
-          >
-            <RefreshCw size={14} className={detecting ? 'pulse' : ''} /> Reset Detection
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button 
+              className="btn btn-outline" 
+              style={{ padding: '4px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+              onClick={() => setRotation(r => (r + 90) % 360)}
+            >
+              <RotateCw size={14} /> Rotate
+            </button>
+            <button 
+              className="btn btn-secondary" 
+              style={{ padding: '4px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+              onClick={async () => {
+                setDetecting(true);
+                const detected = await detectAnchors(rawCanvasRef.current, template);
+                setAnchors(detected);
+                setAutoDetected(detected.autoDetected);
+                setDetecting(false);
+              }}
+            >
+              <RefreshCw size={14} className={detecting ? 'pulse' : ''} /> Reset Detection
+            </button>
+          </div>
         )}
       </div>
 

@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // Check parameters
 $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
 $name = isset($_POST['name']) ? trim($_POST['name']) : '';
+$existing_image_path = isset($_POST['existing_image_path']) ? trim($_POST['existing_image_path']) : '';
 $width = isset($_POST['width']) ? intval($_POST['width']) : 0;
 $height = isset($_POST['height']) ? intval($_POST['height']) : 0;
 $anchors_json = isset($_POST['anchors_json']) ? $_POST['anchors_json'] : '';
@@ -94,8 +95,20 @@ if (isset($_FILES['blank_image']) && $_FILES['blank_image']['error'] === UPLOAD_
 } else {
     // If no new image was uploaded and it's a new template, fail
     if ($id <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Blank OMR sheet image is required for new templates.']);
-        exit();
+        if (!empty($existing_image_path) && file_exists($existing_image_path)) {
+            $file_ext = strtolower(pathinfo($existing_image_path, PATHINFO_EXTENSION));
+            $unique_filename = uniqid('template_', true) . '.' . $file_ext;
+            $new_dest_path = 'uploads/templates/' . $unique_filename;
+            if (copy($existing_image_path, $new_dest_path)) {
+                $dest_path = $new_dest_path;
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Failed to copy existing template image.']);
+                exit();
+            }
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Blank OMR sheet image is required for new templates.']);
+            exit();
+        }
     }
 }
 

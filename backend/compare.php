@@ -10,6 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 $template_id = isset($_GET['template_id']) ? intval($_GET['template_id']) : 0;
+$qpcode = isset($_GET['qpcode']) ? trim($_GET['qpcode']) : '';
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 20;
+
+if ($page < 1) $page = 1;
+if ($limit < 1) $limit = 20;
+$offset = ($page - 1) * $limit;
 
 if ($template_id <= 0) {
     echo json_encode(['success' => false, 'message' => 'Valid template_id is required.']);
@@ -50,15 +57,77 @@ try {
         $answer_key_map[$p][$qpc][$q] = $k['correct_option'];
     }
 
-    // 2. Fetch evaluation results
-    $eval_stmt = $pdo->prepare("
-        SELECT er.*, ss.id as scanned_sheet_id, ss.omr_id, ss.omr_id AS sheet_number, ss.aligned_image_path, ss.raw_image_path, ss.pattern
+    // 2. Fetch all scores for global stats and pagination
+    $stats_sql = "
+        SELECT er.score, er.total_questions 
+        FROM `evaluation_results` er 
+        JOIN `scanned_sheets` ss ON er.omr_id = ss.omr_id 
+        WHERE ss.template_id = :template_id
+    ";
+    $params = [':template_id' => $template_id];
+    
+    if ($qpcode !== '') {
+        $stats_sql .= " AND ss.qpcode = :qpcode";
+        $params[':qpcode'] = $qpcode;
+    }
+    
+    $stats_stmt = $pdo->prepare($stats_sql);
+    $stats_stmt->execute($params);
+    $all_stats = $stats_stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $total_records = count($all_stats);
+    $total_pages = ceil($total_records / $limit);
+    
+    $global_max = 0;
+    $global_min = 0;
+    $global_avg = 0;
+    $global_pass = 0;
+    
+    if ($total_records > 0) {
+        $sum = 0;
+        $scores = [];
+        foreach($all_stats as $st) {
+            $s = (float)$st['score'];
+            $scores[] = $s;
+            $sum += $s;
+            
+            $pass_thresh = (float)$st['total_questions'] * 0.4;
+            if ($s >= $pass_thresh) {
+                $global_pass++;
+            }
+        }
+        $global_max = max($scores);
+        $global_min = min($scores);
+        $global_avg = round($sum / $total_records, 2);
+    }
+    
+    $global_pass_percentage = $total_records > 0 ? round(($global_pass / $total_records) * 100, 1) : 0;
+    
+    $global_stats_arr = [
+        'count' => $total_records,
+        'maxScore' => $global_max,
+        'minScore' => $global_min,
+        'avgScore' => number_format($global_avg, 2),
+        'passPercentage' => number_format($global_pass_percentage, 1)
+    ];
+
+    // 3. Fetch evaluation results paginated
+    $eval_sql = "
+        SELECT er.*, ss.id as scanned_sheet_id, ss.omr_id, ss.omr_id AS sheet_number, ss.aligned_image_path, ss.raw_image_path, ss.pattern, ss.qpcode
         FROM `evaluation_results` er
         JOIN `scanned_sheets` ss ON er.omr_id = ss.omr_id
         WHERE ss.template_id = :template_id
-        ORDER BY er.score DESC, er.student_regno ASC
-    ");
-    $eval_stmt->execute([':template_id' => $template_id]);
+    ";
+    
+    if ($qpcode !== '') {
+        $eval_sql .= " AND ss.qpcode = :qpcode";
+    }
+    
+    // Use string concatenation for LIMIT and OFFSET as parameter binding can be tricky with them in some PDO configs
+    $eval_sql .= " ORDER BY er.score DESC, er.student_regno ASC LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
+
+    $eval_stmt = $pdo->prepare($eval_sql);
+    $eval_stmt->execute($params);
     $students = $eval_stmt->fetchAll();
 
     // 3. For each student, fetch their detailed question responses
@@ -90,9 +159,14 @@ try {
         }
 
         $comparison_matrix = [];
+        $mult_count = 0;
         foreach ($student_answer_key as $q_num => $correct_opt) {
             $sel_opt = isset($response_map[$q_num]) ? $response_map[$q_num] : 'BLANK';
             $is_correct = ($sel_opt === $correct_opt);
+            
+            if ($sel_opt === 'MULT') {
+                $mult_count++;
+            }
             
             $comparison_matrix[] = [
                 'question_number' => $q_num,
@@ -108,12 +182,14 @@ try {
             'omr_id' => $student['omr_id'],
             'sheet_number' => $student['sheet_number'],
             'pattern' => $student_pattern,
+            'qpcode' => $student['qpcode'],
             'raw_image_path' => $student['raw_image_path'],
             'aligned_image_path' => $student['aligned_image_path'],
             'total_questions' => $student['total_questions'],
             'correct_answers' => $student['correct_answers'],
             'wrong_answers' => $student['wrong_answers'],
             'blank_answers' => $student['blank_answers'],
+            'multiple_answers' => $mult_count,
             'score' => $student['score'],
             'evaluated_at' => $student['evaluated_at'],
             'comparison_matrix' => $comparison_matrix
@@ -123,7 +199,14 @@ try {
     echo json_encode([
         'success' => true,
         'answer_key' => $keys,
-        'results' => $detailed_results
+        'results' => $detailed_results,
+        'pagination' => [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => (int)$total_records,
+            'total_pages' => (int)$total_pages
+        ],
+        'global_stats' => $global_stats_arr
     ]);
 
 } catch (\PDOException $e) {

@@ -151,11 +151,25 @@ function createOMRTablesIfNotExist($pdo)
         if ($stmt->fetch()) {
             // Attempt to drop standard foreign key names before changing column
             try { $pdo->exec("ALTER TABLE `evaluation_results` DROP FOREIGN KEY `evaluation_results_ibfk_1`"); } catch (\Exception $e) {}
-            $pdo->exec("ALTER TABLE `evaluation_results` CHANGE `scanned_sheet_id` `omr_id` VARCHAR(50) NOT NULL");
+            // We NO LONGER rename it, because we actually need scanned_sheet_id.
+            // But if it was already renamed to omr_id, we need to add it back!
         }
-    } catch (\PDOException $e) {
-        // Ignore if table does not exist
-    }
+    } catch (\PDOException $e) {}
+
+    // Migration: Add scanned_sheet_id BACK to student_responses and evaluation_results
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `student_responses` LIKE 'scanned_sheet_id'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `student_responses` ADD COLUMN `scanned_sheet_id` INT NOT NULL DEFAULT 0");
+            $pdo->exec("UPDATE `student_responses` sr JOIN `scanned_sheets` ss ON sr.omr_id = ss.omr_id SET sr.scanned_sheet_id = ss.id WHERE sr.scanned_sheet_id = 0");
+        }
+        
+        $stmt = $pdo->query("SHOW COLUMNS FROM `evaluation_results` LIKE 'scanned_sheet_id'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE `evaluation_results` ADD COLUMN `scanned_sheet_id` INT NOT NULL DEFAULT 0");
+            $pdo->exec("UPDATE `evaluation_results` er JOIN `scanned_sheets` ss ON er.omr_id = ss.omr_id SET er.scanned_sheet_id = ss.id WHERE er.scanned_sheet_id = 0");
+        }
+    } catch (\PDOException $e) {}
 
     // OMR Templates
     $pdo->exec("

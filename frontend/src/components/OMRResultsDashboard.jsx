@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, BarChart2, CheckCircle, AlertTriangle, HelpCircle, Eye } from 'lucide-react';
+import { FileText, Download, BarChart2, CheckCircle, AlertTriangle, HelpCircle, Eye, Trash2 } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { api, API_BASE } from '../api/api';
 import SearchableDropdown from './SearchableDropdown';
 
@@ -85,56 +87,101 @@ const OMRResultsDashboard = () => {
     }
   };
 
-  // Export Results Table to CSV
+  // Export Results Table to Excel (XLSX)
   const handleExportCSV = async () => {
     try {
       // Fetch all data for export, ignoring pagination
       const data = await api.compare(selectedTemplateId, 1, 100000, selectedQpCode);
       if (data.success && data.results.length > 0) {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Student Reg No,OMR Sheet Number,Pattern,QP Code,Total Questions,Correct,Wrong,Blank,Score\r\n";
         
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('OMR Results');
+        
+        // Define columns
+        worksheet.columns = [
+          { header: 'QP Code', key: 'qpcode', width: 15 },
+          { header: 'USN', key: 'usn', width: 20 },
+          { header: 'OMR Barcode', key: 'omr', width: 20 },
+          { header: 'Marks Secured', key: 'marks', width: 15, style: { alignment: { horizontal: 'center' } } },
+          { header: 'Remarks', key: 'remarks', width: 60 }
+        ];
+        
+        // Add rows
         data.results.forEach(row => {
-          csvContent += `${row.student_regno},${row.sheet_number},${row.pattern || 'A'},${row.qpcode || ''},${row.total_questions},${row.correct_answers},${row.wrong_answers},${row.blank_answers},${row.score}\r\n`;
+          const attempts = row.total_questions - row.blank_answers;
+          const remarks = `Attempts: ${attempts}, Wrong: ${row.wrong_answers}, Not Attempt: ${row.blank_answers}, Multiple Ans.: ${row.multiple_answers || 0}`;
+          
+          worksheet.addRow({
+            qpcode: row.qpcode || '',
+            usn: row.student_regno,
+            omr: row.sheet_number,
+            marks: parseFloat(row.score),
+            remarks: remarks
+          });
         });
         
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `OMR_Evaluation_Results_Template_${selectedTemplateId}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // Style headers to be bold
+        worksheet.getRow(1).font = { bold: true };
+        
+        // Generate Excel file buffer and save
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, `OMR_Evaluation_Results_Template_${selectedTemplateId}.xlsx`);
+        
       }
     } catch (err) {
       alert("Error exporting: " + err.message);
     }
   };
 
-  // Calculate statistics
-  const getStats = () => {
-    if (!resultsData || resultsData.results.length === 0) return null;
+  // Delete a result and refresh
+  const handleDeleteResult = async (regno, omrid) => {
+    if (!window.confirm(`Are you sure you want to delete results for Student ${regno} (OMR ID: ${omrid})? This will also remove the scanned sheet and response data.`)) {
+      return;
+    }
     
-    const list = resultsData.results;
-    const count = list.length;
-    const scores = list.map(r => parseFloat(r.score));
-    
-    const maxScore = Math.max(...scores);
-    const minScore = Math.min(...scores);
-    const avgScore = (scores.reduce((a, b) => a + b, 0) / count).toFixed(2);
-    
-    // Pass count (assume 40% is pass threshold)
-    const passThreshold = list[0].total_questions * 0.4;
-    const passCount = list.filter(r => r.score >= passThreshold).length;
-    const passPercentage = ((passCount / count) * 100).toFixed(1);
+    try {
+      const resp = await api.deleteResult({ student_regno: regno, sheet_number: omrid });
+      if (resp.success) {
+        // Refresh the list
+        fetchEvaluationResults(selectedTemplateId, page, limit, selectedQpCode);
+      } else {
+        alert(resp.message || 'Failed to delete record');
+      }
+    } catch (err) {
+      alert('Error deleting record: ' + err.message);
+    }
+  };
 
-    return {
-      count,
-      maxScore,
-      minScore,
-      avgScore,
-      passPercentage
-    };
+  // Delete all results based on current filters
+  const handleDeleteAllResults = async () => {
+    const confirmMsg = selectedQpCode 
+      ? `Are you sure you want to delete ALL results for this Template and QP Code (${selectedQpCode})? This cannot be undone.`
+      : `Are you sure you want to delete ALL results for this Template? This cannot be undone.`;
+      
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    try {
+      const resp = await api.deleteAllResults({ 
+        template_id: selectedTemplateId, 
+        qpcode: selectedQpCode 
+      });
+      if (resp.success) {
+        // Refresh the list
+        fetchEvaluationResults(selectedTemplateId, 1, limit, selectedQpCode);
+      } else {
+        alert(resp.message || 'Failed to delete results');
+      }
+    } catch (err) {
+      alert('Error deleting results: ' + err.message);
+    }
+  };
+
+  const getStats = () => {
+    if (!resultsData || !resultsData.global_stats) return null;
+    return resultsData.global_stats;
   };
 
   const stats = getStats();
@@ -176,9 +223,14 @@ const OMRResultsDashboard = () => {
         </div>
 
         {resultsData && resultsData.results.length > 0 && (
-          <button className="btn btn-primary" onClick={handleExportCSV}>
-            <Download size={16} /> Export to CSV
-          </button>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <button className="btn" onClick={handleDeleteAllResults} style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', border: '1px solid var(--danger)' }}>
+              <Trash2 size={16} /> Delete All
+            </button>
+            <button className="btn btn-primary" onClick={handleExportCSV}>
+              <Download size={16} /> Export to Excel
+            </button>
+          </div>
         )}
       </div>
 
@@ -287,16 +339,26 @@ const OMRResultsDashboard = () => {
                     <td style={{ color: 'var(--danger)' }}>{row.wrong_answers}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{row.blank_answers}</td>
                     <td style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent-secondary)' }}>
-                      {row.score} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 }}>/ {row.total_questions}</span>
+                      {parseFloat(row.score)} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 }}>/ {row.total_questions}</span>
                     </td>
                     <td>
-                      <button 
-                        className="btn btn-secondary" 
-                        style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                        onClick={() => setViewingStudent(row)}
-                      >
-                        <Eye size={12} /> Compare
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                          onClick={() => setViewingStudent(row)}
+                        >
+                          <Eye size={12} /> Compare
+                        </button>
+                        <button 
+                          className="btn" 
+                          style={{ padding: '6px 10px', fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px' }}
+                          onClick={() => handleDeleteResult(row.student_regno, row.sheet_number)}
+                          title="Delete Result"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -435,7 +497,7 @@ const OMRResultsDashboard = () => {
                 </div>
                 <div style={{ background: 'var(--bg-primary)', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Score</span>
-                  <h4 style={{ color: 'var(--accent-secondary)', fontWeight: 700 }}>{viewingStudent.score} / {viewingStudent.total_questions}</h4>
+                  <h4 style={{ color: 'var(--accent-secondary)', fontWeight: 700 }}>{parseFloat(viewingStudent.score)} / {viewingStudent.total_questions}</h4>
                 </div>
               </div>
 

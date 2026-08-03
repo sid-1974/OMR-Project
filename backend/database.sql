@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS `scanned_sheets` (
 -- Scanned Student Responses
 CREATE TABLE IF NOT EXISTS `student_responses` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `scanned_sheet_id` INT NOT NULL,
   `omr_id` VARCHAR(50) NOT NULL,
   `question_number` INT NOT NULL,
   `selected_option` VARCHAR(5) DEFAULT NULL -- 'A', 'B', 'C', 'D', 'MULT', 'BLANK'
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS `student_responses` (
 -- Comparison Results
 CREATE TABLE IF NOT EXISTS `evaluation_results` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `scanned_sheet_id` INT NOT NULL,
   `omr_id` VARCHAR(50) NOT NULL,
   `qpcode` VARCHAR(50) DEFAULT NULL,
   `student_regno` VARCHAR(50) NOT NULL,

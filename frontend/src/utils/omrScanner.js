@@ -700,15 +700,13 @@ export const scanQuestionRow = (
     };
   }
 
-  // Check if multiple bubbles are filled AND they are competitive
+  // Check if multiple bubbles are filled
   if (second && second.fillRatio >= PRIMARY_FILL_THRESHOLD) {
-    if (best.fillRatio - second.fillRatio < AMBIGUOUS_MARGIN) {
-      return {
-        selected: "MULT",
-        ratios: results,
-        confidence: 0.0,
-      };
-    }
+    return {
+      selected: "MULT",
+      ratios: results,
+      confidence: 0.0,
+    };
   }
 
   return {

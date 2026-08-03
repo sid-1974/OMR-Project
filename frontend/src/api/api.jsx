@@ -36,7 +36,7 @@ export const api = {
     if (pattern) params.pattern = pattern;
     if (qpcode) params.qpcode = qpcode;
     const url = buildUrl('get_templates.php', params);
-    const response = await fetch(url);
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Failed to fetch templates (Status: ${response.status})`);
     }
@@ -118,7 +118,7 @@ export const api = {
   // Get distinct QP Codes available for a template
   getQpCodes: async (templateId) => {
     const url = buildUrl('get_qpcodes.php', { template_id: templateId });
-    const response = await fetch(url);
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Failed to fetch QP Codes (Status: ${response.status})`);
     }
@@ -130,9 +130,41 @@ export const api = {
     const params = { template_id: templateId, page, limit };
     if (qpcode) params.qpcode = qpcode;
     const url = buildUrl('compare.php', params);
-    const response = await fetch(url);
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Failed to perform comparison (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
+  // Delete a result and all its related records
+  deleteResult: async (payload) => {
+    const url = buildUrl('delete_result.php');
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete result (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
+  // Delete all results based on template_id and optionally qpcode
+  deleteAllResults: async (payload) => {
+    const url = buildUrl('delete_all_results.php');
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete all results (Status: ${response.status})`);
     }
     return response.json();
   }
