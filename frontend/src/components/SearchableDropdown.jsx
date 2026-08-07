@@ -68,6 +68,16 @@ const SearchableDropdown = ({
   const selectedOption = normalizedOptions.find(opt => String(opt.value) === String(value));
   const displayLabel = selectedOption ? selectedOption.label : (value ? value : placeholder);
 
+  const handleToggle = () => {
+    if (disabled) return;
+    if (!isOpen) {
+      updatePosition();
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  };
+
   return (
     <div ref={dropdownRef} style={{ position: 'relative', width: '100%', minWidth: '150px', ...style }}>
       <div 
@@ -82,7 +92,7 @@ const SearchableDropdown = ({
           height: '100%',
           userSelect: 'none'
         }}
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={handleToggle}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }}>
           {displayLabel}
