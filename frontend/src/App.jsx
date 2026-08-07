@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Camera, CheckSquare, Settings, BarChart2 } from 'lucide-react';
-import OMRScanConsole from './components/OMRScanConsole';
+import OMRScanPage from './pages/OMRScanPage';
 import OMRAnswerKeyConsole from './components/OMRAnswerKeyConsole';
-import OMRTemplateDesigner from './components/OMRTemplateDesigner';
+import OMRTemplateDesignerPage from './pages/OMRTemplateDesignerPage';
 import OMRResultsDashboard from './components/OMRResultsDashboard';
 
 function App() {
@@ -49,7 +49,7 @@ function App() {
       {/* Main Content Area */}
       <main className="main-content">
         <div style={{ display: activeTab === 'scan' ? 'block' : 'none' }}>
-          <OMRScanConsole onEvaluationComplete={() => setActiveTab('results')} />
+          <OMRScanPage onEvaluationComplete={() => setActiveTab('results')} />
         </div>
         
         <div style={{ display: activeTab === 'key' ? 'block' : 'none' }}>
@@ -57,7 +57,7 @@ function App() {
         </div>
         
         <div style={{ display: activeTab === 'designer' ? 'block' : 'none' }}>
-          <OMRTemplateDesigner onTemplateSaved={() => {}} />
+          <OMRTemplateDesignerPage onTemplateSaved={() => {}} />
         </div>
         
         <div style={{ display: activeTab === 'results' ? 'block' : 'none' }}>

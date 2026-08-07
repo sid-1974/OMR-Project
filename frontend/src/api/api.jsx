@@ -1,3 +1,4 @@
+// export const API_BASE =  "https://dev-api.universitysolutions.in/omr/";
 export const API_BASE =  "http://localhost/omr/backend";
 
 // Helper to retrieve the "db" query parameter from the current URL

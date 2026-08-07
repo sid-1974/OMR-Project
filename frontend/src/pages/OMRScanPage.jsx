@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, CheckSquare, FileText, ChevronRight, User, AlertCircle, CheckCircle, Edit, Trash } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import OMRImageAdjuster from './OMRImageAdjuster';
-import SearchableDropdown from './SearchableDropdown';
+import OMRImageAdjuster from '../components/OMRImageAdjuster';
+import SearchableDropdown from '../components/SearchableDropdown';
 import { scanQuestionRow, scanRegistrationGrid, detectAnchors, warpPerspective } from '../utils/omrScanner';
 import { api } from '../api/api';
+import { drawRegistrationGrid } from '../components/canvasDrawers/RegistrationGrid';
+import { drawSheetNoGrid } from '../components/canvasDrawers/SheetNoGrid';
+import { drawQPCodeGrid } from '../components/canvasDrawers/QPCodeGrid';
+import { drawQuestionBubbles } from '../components/canvasDrawers/QuestionBubbles';
 
-const OMRScanConsole = ({ onEvaluationComplete }) => {
+const OMRScanPage = ({ onEvaluationComplete }) => {
 
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateName, setSelectedTemplateName] = useState('');
@@ -740,91 +744,10 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
       ctx.drawImage(img, 0, 0);
 
       // Draw template overlays for visual alignment review
-      // 1. Draw Registration Grid (Cyan)
-      let regConfig = selectedTemplate.regno_config;
-      if (regConfig) {
-        if (typeof regConfig === 'string') regConfig = JSON.parse(regConfig);
-        if (regConfig.enabled) {
-          ctx.strokeStyle = '#06b6d4';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(regConfig.x, regConfig.y, regConfig.width, regConfig.height);
-
-          const colSpacing = regConfig.width / (regConfig.columns - 1 || 1);
-          const rowSpacing = regConfig.height / (regConfig.rows - 1 || 1);
-          for (let col = 0; col < regConfig.columns; col++) {
-            const x = regConfig.x + col * colSpacing;
-            for (let row = 0; row < regConfig.rows; row++) {
-              const y = regConfig.y + row * rowSpacing;
-              ctx.beginPath();
-              ctx.arc(x, y, regConfig.bubbleRadius || 8, 0, 2 * Math.PI);
-              ctx.stroke();
-            }
-          }
-        }
-      }
-
-      // 2. Draw Sheet No Grid (Yellow)
-      let sheetConfig = selectedTemplate.sheetno_config;
-      if (sheetConfig) {
-        if (typeof sheetConfig === 'string') sheetConfig = JSON.parse(sheetConfig);
-        if (sheetConfig.enabled && (sheetConfig.mode === 'bubble_grid' || !sheetConfig.mode)) {
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(sheetConfig.x, sheetConfig.y, sheetConfig.width, sheetConfig.height);
-
-          const colSpacing = sheetConfig.width / (sheetConfig.columns - 1 || 1);
-          const rowSpacing = sheetConfig.height / (sheetConfig.rows - 1 || 1);
-          for (let col = 0; col < sheetConfig.columns; col++) {
-            const x = sheetConfig.x + col * colSpacing;
-            for (let row = 0; row < sheetConfig.rows; row++) {
-              const y = sheetConfig.y + row * rowSpacing;
-              ctx.beginPath();
-              ctx.arc(x, y, sheetConfig.bubbleRadius || 8, 0, 2 * Math.PI);
-              ctx.stroke();
-            }
-          }
-        }
-      }
-
-      // Draw QP Code Grid (Orange)
-      let qpcodeConfig = selectedTemplate.qpcode_config;
-      if (qpcodeConfig) {
-        if (typeof qpcodeConfig === 'string') qpcodeConfig = JSON.parse(qpcodeConfig);
-        if (qpcodeConfig.enabled) {
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(qpcodeConfig.x, qpcodeConfig.y, qpcodeConfig.width, qpcodeConfig.height);
-
-          const colSpacing = qpcodeConfig.width / (qpcodeConfig.columns - 1 || 1);
-          const rowSpacing = qpcodeConfig.height / (qpcodeConfig.rows - 1 || 1);
-          for (let col = 0; col < qpcodeConfig.columns; col++) {
-            const x = qpcodeConfig.x + col * colSpacing;
-            for (let row = 0; row < qpcodeConfig.rows; row++) {
-              const y = qpcodeConfig.y + row * rowSpacing;
-              ctx.beginPath();
-              ctx.arc(x, y, qpcodeConfig.bubbleRadius || 8, 0, 2 * Math.PI);
-              ctx.stroke();
-            }
-          }
-        }
-      }
-
-      // 3. Draw Question Bubbles (Green)
-      let qConfig = selectedTemplate.questions_config;
-      if (qConfig) {
-        if (typeof qConfig === 'string') qConfig = JSON.parse(qConfig);
-        ctx.strokeStyle = '#10b981';
-        ctx.lineWidth = 1.5;
-        qConfig.forEach(block => {
-          if (block.bubbles) {
-            block.bubbles.forEach(b => {
-              ctx.beginPath();
-              ctx.arc(b.x, b.y, b.r || 8, 0, 2 * Math.PI);
-              ctx.stroke();
-            });
-          }
-        });
-      }
+      drawRegistrationGrid(ctx, selectedTemplate.regno_config);
+      drawSheetNoGrid(ctx, selectedTemplate.sheetno_config);
+      drawQPCodeGrid(ctx, selectedTemplate.qpcode_config);
+      drawQuestionBubbles(ctx, selectedTemplate.questions_config);
     };
     img.src = files[reviewingIndex].alignedDataUrl;
   }, [reviewingIndex, selectedTemplate, files]);
@@ -1441,4 +1364,4 @@ const OMRScanConsole = ({ onEvaluationComplete }) => {
   );
 };
 
-export default OMRScanConsole;
+export default OMRScanPage;
