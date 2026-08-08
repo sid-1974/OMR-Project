@@ -50,7 +50,7 @@ const OMRTemplateDesignerPage = ({ onTemplateSaved }) => {
   const [activeRegBlockId, setActiveRegBlockId] = useState(1);
 
   const [qpCodeConfig, setQpCodeConfig] = useState({
-    enabled: false,
+    enabled: true,
     x: 400,
     y: 150,
     width: 150,
@@ -203,7 +203,7 @@ const OMRTemplateDesignerPage = ({ onTemplateSaved }) => {
       ]);
       setActiveRegBlockId(1);
       setQpCodeConfig({
-        enabled: false,
+        enabled: true,
         x: 400,
         y: 150,
         width: 150,
