@@ -803,9 +803,19 @@ const OMRScanPage = ({ onEvaluationComplete }) => {
       alert("OMR ID is required to approve this sheet.");
       return;
     }
-    if (qpcodeConfig?.enabled && !reviewData.qpcode?.trim()) {
-      alert("QP Code is required to approve this sheet.");
-      return;
+    if (qpcodeConfig?.enabled) {
+      if (!reviewData.qpcode?.trim()) {
+        alert("QP Code is required to approve this sheet.");
+        return;
+      }
+      if (defaultQpCode && reviewData.qpcode !== defaultQpCode) {
+        alert(`QP Code Mismatch. Expected ${defaultQpCode}, but got ${reviewData.qpcode}. Please correct it before approving.`);
+        return;
+      }
+      if (!defaultQpCode && availableQpCodes.length > 0 && !availableQpCodes.includes(reviewData.qpcode)) {
+        alert(`Unknown QP Code (${reviewData.qpcode}). Valid codes are: ${availableQpCodes.join(', ')}`);
+        return;
+      }
     }
 
     setLoadingReviewSave(true);
