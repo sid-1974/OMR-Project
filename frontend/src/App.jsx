@@ -4,6 +4,7 @@ import OMRScanPage from './pages/OMRScanPage';
 import OMRAnswerKeyConsole from './components/OMRAnswerKeyConsole';
 import OMRTemplateDesignerPage from './pages/OMRTemplateDesignerPage';
 import OMRResultsDashboard from './components/OMRResultsDashboard';
+import ThemeToggle from './components/ThemeToggle';
 
 function App() {
   const [activeTab, setActiveTab] = useState('scan'); // scan | key | designer | results
@@ -43,6 +44,8 @@ function App() {
           >
             Results Dashboard
           </button>
+          <div style={{ width: '1px', background: 'var(--border-color)', margin: '0 0.5rem' }}></div>
+          <ThemeToggle />
         </div>
       </nav>
 
